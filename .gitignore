@@ -1,0 +1,96 @@
+# --- Python / Django ---
+__pycache__/
+*.py[cod] # Matches .pyc, .pyo, .pyd
+*.log
+db.sqlite3
+*.sqlite3
+
+# Virtual Environments (add others if you use different names)
+/venv/
+/.venv/
+/env/
+/ENV/
+/env.bak/
+/venv.bak/
+# Add any specific old venv names you might accidentally copy
+# /django_py311/
+
+# Secrets / Sensitive Config
+# IMPORTANT: Ignore the actual .env file(s) and similar patterns
+.env
+.env.*
+!/.env.example # Make sure example file IS tracked
+secrets.yml
+secrets.py
+*.key
+
+# Build artifacts & Compiled files
+/build/
+/dist/
+*.egg-info/
+/htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.orig
+.hypothesis/
+
+# --- Node.js / React / Vite ---
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.npm/
+pnpm-debug.log*
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json # Crash reports
+
+# Dependency directories
+/node_modules/          # Ignore top-level node_modules if any
+/frontend/node_modules/ # Explicitly ignore frontend node_modules
+
+
+/frontend/dist/
+/frontend/.vite/
+/frontend/.next/      # If you ever switch to Next.js
+/frontend/out/        # If you ever switch to Next.js static export
+/frontend/.output/    # Nuxt build output
+
+# IDE / Editor directories and files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.user
+*.userosscache
+*.sln
+*.tmp
+
+# --- OS specific ---
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Icon? # Optional: Custom icon files
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.#*
+

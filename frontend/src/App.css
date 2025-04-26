@@ -1,0 +1,100 @@
+/* src/App.css */
+
+/* --- Base Layout --- */
+.appContainer {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative; /* For positioning toggle button */
+  background-color: #ffffff; /* Main app bg */
+}
+
+.sidebarContainer {
+  width: 260px; /* Default expanded width */
+  flex-shrink: 0;
+  height: 100%;
+  background-color: #f7f7f8; /* Match sidebar module variable */
+  transition: width 0.3s ease, padding 0.3s ease, border 0.3s ease;
+  position: relative;
+  z-index: 10;
+  border-right: 1px solid #e5e7eb; /* Ensure border is here if needed */
+}
+
+.chatInterfaceContainer {
+  flex-grow: 1;
+  height: 100%;
+  background-color: #ffffff; /* Main chat area background */
+  transition: margin-left 0.3s ease; /* Smooth transition when sidebar collapses */
+  overflow: hidden; /* Prevent content overflow */
+}
+
+/* --- Collapsed State --- */
+.appContainer.sidebar-collapsed .sidebarContainer {
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    border-right: none;
+    overflow: hidden; /* Clip content when collapsed */
+}
+
+/* --- Sidebar Toggle Button --- */
+.sidebarToggleButton {
+    position: absolute;
+    top: 12px; /* Position near top */
+    /* Start position based on expanded sidebar width + desired offset */
+    left: calc(260px - 12px - 10px); /* width - half button width - offset */
+    z-index: 20; /* Above sidebar content */
+    background-color: #fff;
+    border: 1px solid #dcdcdc; /* Lighter border */
+    border-radius: 6px; /* Match sidebar items */
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    transition: left 0.3s ease, transform 0.3s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    color: #4b5563; /* Icon color */
+}
+.sidebarToggleButton:hover {
+    background-color: #f3f4f6;
+    border-color: #c0c0c0;
+}
+/* Add accent color on focus */
+.sidebarToggleButton:focus-visible {
+     outline: none;
+     border-color: #a5b4fc; /* Lighter indigo */
+     box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); /* Accent focus ring */
+}
+
+
+/* Adjust toggle button position when sidebar is collapsed */
+.appContainer.sidebar-collapsed .sidebarToggleButton {
+    left: 10px; /* Move near the left edge */
+    /* transform: rotate(180deg); Optional: flip arrow */
+}
+
+
+/* --- Other Base Styles --- */
+#root {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  height: 100%;
+  width: 100%;
+}
+
+/* Ensure body has no margin */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  background-color: #ffffff; /* Ensure body background matches app */
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}

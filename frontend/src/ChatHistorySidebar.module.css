@@ -1,0 +1,329 @@
+/* src/ChatHistorySidebar.module.css */
+
+/* --- DARK VIOLET THEME COLOR VARIABLES --- */
+:root {
+    /* Backgrounds */
+    --sidebar-bg: #1f1d2b; /* Dark purplish grey */
+    --item-hover-bg: #2a283a; /* Slightly lighter dark */
+    --item-active-bg: #3b384f; /* Even lighter dark / subtle violet hint */
+    --edit-input-bg: #2a283a; /* Match hover background */
+    --footer-hover-bg: var(--item-hover-bg);
+  
+    /* Text */
+    --sidebar-text: #e0def4; /* Light lavender/off-white */
+    --sidebar-text-secondary: #908caa; /* Muted lavender grey */
+    --item-active-text: #ffffff; /* White on active for contrast */
+    --group-header-text: #908caa; /* Match secondary text */
+    --edit-input-text: var(--sidebar-text);
+  
+    /* Borders & Separators */
+    --sidebar-border-right: #393552; /* Darker separator */
+    --new-chat-border: #4a4761; /* Visible border on dark */
+    --new-chat-hover-bg: #2a283a; /* Match item hover */
+    --edit-input-border: #4a4761; /* Match new chat border */
+    --footer-border-top: var(--sidebar-border-right);
+  
+    /* Accents & Icons (Violet/Action) */
+    --new-chat-icon: #c4b5fd; /* Lighter violet for icon */
+    --action-icon: #908caa; /* Match secondary text */
+    --action-icon-hover: #e0def4; /* Match primary text on hover */
+    --action-button-hover-bg: rgba(224, 222, 244, 0.1); /* Subtle light hover */
+    --edit-input-focus-border: #a78bfa; /* Lighter violet focus */
+    --edit-input-focus-shadow: rgba(167, 139, 250, 0.3); /* Violet shadow */
+    --delete-icon-hover-bg: rgba(239, 68, 68, 0.15); /* Red hover background */
+    --delete-icon-hover-color: #f87171; /* Lighter red for icon */
+    --footer-icon-color: var(--sidebar-text-secondary);
+    --footer-focus-ring: rgba(167, 139, 250, 0.4); /* Violet focus ring */
+  
+    /* --- LOGIN BUTTON COLORS --- */
+    --login-button-bg: #7c3aed;        /* Keep Main Violet */
+    --login-button-hover-bg: #6d28d9;  /* Keep Darker Violet */
+    --login-button-text: #ffffff;
+    --login-button-icon: #ffffff;
+  }
+  
+  /* --- Base Sidebar Styles --- */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--sidebar-bg); /* Apply dark bg */
+    color: var(--sidebar-text);       /* Apply light text */
+    font-size: 0.875rem; /* 14px */
+    border-right: 1px solid var(--sidebar-border-right); /* Apply dark border */
+    width: 260px;
+    flex-shrink: 0;
+    transition: width 0.3s ease, padding 0.3s ease, border 0.3s ease;
+    position: relative;
+    /* Needs :global selector to target parent class from App.css */
+  }
+  :global(.appContainer.sidebar-collapsed) .sidebar {
+      overflow: hidden;
+  }
+  :global(.appContainer:not(.sidebar-collapsed)) .sidebar {
+    overflow: visible; /* Allow dropdowns (if any added later) to show */
+  }
+  
+  
+  /* --- New Chat Button --- */
+  .newChatButton {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    padding: 10px 12px;
+    margin: 10px;
+    background-color: transparent;
+    color: var(--sidebar-text); /* Light text */
+    border: 1px solid var(--new-chat-border); /* Darker border */
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    text-align: left;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    font-size: 0.875rem;
+  }
+  .newChatButton svg {
+    flex-shrink: 0;
+    color: var(--new-chat-icon); /* Light violet icon */
+  }
+  .newChatButton:hover {
+    background-color: var(--new-chat-hover-bg); /* Dark subtle hover */
+    border-color: #6a678e; /* Slightly lighter border on hover */
+  }
+  
+  /* --- Session List & Groups --- */
+  .sessionList {
+    flex-grow: 1; /* Take remaining vertical space */
+    overflow-y: auto; /* Enable scrolling for long lists */
+    padding: 0 8px 10px 8px; /* Slightly reduced padding */
+  }
+  .sessionGroup {
+    margin-bottom: 10px; /* Tighter group spacing */
+  }
+  .groupHeader {
+    font-size: 0.7rem; /* 11px - Smaller */
+    font-weight: 600; /* Bolder */
+    color: var(--group-header-text); /* Muted lavender grey */
+    padding: 15px 12px 6px 12px; /* Adjust padding */
+    text-transform: uppercase;
+    letter-spacing: 0.06em; /* Add letter spacing */
+    position: sticky; /* Make headers sticky */
+    top: 0; /* Stick to the top of the scrollable container */
+    background-color: var(--sidebar-bg); /* Dark bg for sticky header */
+    z-index: 1; /* Keep above session items during scroll */
+  }
+  
+  /* --- Session Item --- */
+  .sessionItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    margin-bottom: 2px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    border: 1px solid transparent;
+    position: relative; /* Essential for absolute positioning of actions */
+    min-height: 38px;
+    /* Define CSS variable for background - used by gradient */
+    --item-bg-color: var(--sidebar-bg); /* Use variable */
+  }
+  .sessionItem:not(.editing):hover {
+    background-color: var(--item-hover-bg);
+    --item-bg-color: var(--item-hover-bg); /* Update variable on hover */
+  }
+  .sessionItem.active:not(.editing) {
+    background-color: var(--item-active-bg);
+    color: var(--item-active-text); /* White text on active for contrast */
+    font-weight: 500;
+    --item-bg-color: var(--item-active-bg); /* Update variable when active */
+  }
+  
+  /* --- Session Title (Normal View) --- */
+  .sessionTitle {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1;
+    padding-right: 35px; /* Space for actions */
+  }
+  
+  /* --- Action Button Wrapper (Normal View - Holds Edit/Delete directly) --- */
+  .sessionItemActionsWrapper {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      gap: 6px; /* Space between Edit and Delete icons */
+      /* Use the CSS variable for the gradient background */
+      background: linear-gradient(to left, var(--item-bg-color) 40%, transparent 100%); /* Adjust gradient stop */
+      padding-left: 15px; /* Space for gradient fade */
+      opacity: 0; /* Hidden by default */
+      transition: opacity 0.2s ease-in-out;
+      pointer-events: none; /* Don't block clicks when hidden */
+      z-index: 5; /* Above title */
+  }
+  /* Show wrapper on hover/active */
+  .sessionItem:hover .sessionItemActionsWrapper,
+  .sessionItem.active .sessionItemActionsWrapper {
+      opacity: 1;
+      pointer-events: auto; /* CRITICAL: Allow clicks on buttons when visible */
+  }
+  
+  
+  /* --- Action Button Base Style (Edit/Delete) --- */
+  .actionButton {
+    background: none;
+    border: none;
+    padding: 4px; /* Make clickable area slightly larger */
+    margin: 0;
+    cursor: pointer;
+    color: var(--action-icon); /* Muted icon color */
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .actionButton:hover {
+    background-color: var(--action-button-hover-bg); /* Subtle light hover */
+    color: var(--action-icon-hover); /* Brighter icon on hover */
+  }
+  /* Specific style for delete button hover */
+  .actionButton.deleteButton:hover {
+      background-color: var(--delete-icon-hover-bg); /* Light red bg */
+      color: var(--delete-icon-hover-color); /* Lighter red icon */
+  }
+  
+  
+  /* --- Editing State Styles --- */
+  .sessionItem.editing {
+      cursor: default;
+      background-color: var(--item-active-bg); /* Use active background when editing */
+      --item-bg-color: var(--item-active-bg); /* Update variable for consistency */
+      padding-right: 10px; /* Reset padding */
+  }
+  .editInput {
+      flex-grow: 1; /* Take full width */
+      border: 1px solid var(--edit-input-border); /* Darker border */
+      border-radius: 4px;
+      padding: 5px 8px; /* Adjust padding */
+      font-size: inherit; /* Match sidebar font */
+      outline: none;
+      background-color: var(--edit-input-bg); /* Dark input bg */
+      color: var(--edit-input-text);      /* Light input text */
+      box-shadow: inset 0 1px 1px rgba(0,0,0,0.15); /* Adjusted shadow for dark */
+      height: 28px; /* Match button height roughly */
+      line-height: 1.2; /* Adjust line height */
+      width: 100%; /* Ensure it takes full width within flex item */
+  }
+  .editInput:focus {
+      border-color: var(--edit-input-focus-border); /* Violet focus border */
+      box-shadow: 0 0 0 2px var(--edit-input-focus-shadow); /* Violet focus ring */
+  }
+  
+  
+  /* --- Footer/Auth Section Styles --- */
+  .sidebarFooter {
+    padding: 8px;
+    margin-top: auto;
+    border-top: 1px solid var(--footer-border-top); /* Dark separator */
+    flex-shrink: 0;
+  }
+  
+  /* Base style for all footer buttons (login/user info) */
+  .footerButton {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 10px 12px;
+    background-color: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--sidebar-text); /* Light text */
+    text-align: left;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  
+  /* Default hover (for user info button) */
+  .footerButton:hover:not(.loginButton) {
+    background-color: var(--footer-hover-bg);
+  }
+  
+  /* --- Specific style for the Login Button --- */
+  .loginButton {
+    background-color: var(--login-button-bg); /* Violet bg */
+    color: var(--login-button-text);      /* White text */
+    justify-content: flex-start;         /* Align left */
+    text-align: left;
+  }
+  .loginButton:hover {
+    background-color: var(--login-button-hover-bg); /* Darker violet hover */
+    color: var(--login-button-text);
+  }
+  .loginButton .loginIconWrapper svg {
+      color: var(--login-button-icon); /* White icon */
+  }
+  
+  /* --- Icon Wrappers --- */
+  .userIconWrapper,
+  .loginIconWrapper,
+  .logoutIconWrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    flex-shrink: 0;
+  }
+  .userIconWrapper svg,
+  .logoutIconWrapper svg {
+       color: var(--footer-icon-color); /* Muted default */
+  }
+  
+  /* --- Footer Text --- */
+  .footerButtonText {
+    flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  
+  /* --- Logout Icon Specifics --- */
+  .logoutIconWrapper {
+    margin-left: auto; margin-right: 0; padding: 4px; border-radius: 4px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .logoutIconWrapper:hover {
+     background-color: var(--action-button-hover-bg);
+     color: var(--action-icon-hover);
+  }
+  
+  /* --- Focus Styles --- */
+  .footerButton:focus { outline: none; }
+  .footerButton:focus-visible {
+      outline: none;
+      /* Use dark background in shadow for contrast */
+      box-shadow: 0 0 0 2px var(--sidebar-bg), 0 0 0 4px var(--footer-focus-ring);
+  }
+  .loginButton:focus-visible {
+      box-shadow: 0 0 0 2px var(--sidebar-bg), 0 0 0 4px var(--edit-input-focus-border); /* Use violet focus */
+  }
+  
+  /* --- Loading/Error/Empty States --- */
+  .loading, .error, .empty {
+    padding: 15px;
+    text-align: center;
+    color: var(--sidebar-text-secondary); /* Muted text */
+    font-style: italic;
+    font-size: 0.875rem;
+  }
+  .error {
+    color: #f87171; /* Lighter red for dark */
+    font-weight: 500;
+    font-style: normal;
+  }
