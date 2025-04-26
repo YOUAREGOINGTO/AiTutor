@@ -1,0 +1,118 @@
+/* src/DeleteConfirmationModal.module.css */
+
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6); /* Semi-transparent black overlay */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000; /* High z-index to be on top */
+    animation: fadeInOverlay 0.15s ease-out forwards; /* Use forwards to keep final state */
+    padding: 15px; /* Add padding to overlay to prevent modal touching edges */
+  }
+  
+  @keyframes fadeInOverlay {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  .modalContent {
+    background-color: #ffffff;
+    padding: 20px 24px 16px 24px; /* Reduced bottom padding */
+    border-radius: 12px; /* Maintain rounded corners */
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1); /* More pronounced shadow */
+    max-width: 400px; /* Limit width */
+    width: 100%; /* Responsive within max-width */
+    text-align: center;
+    z-index: 1001;
+    animation: zoomInModal 0.15s ease-out forwards; /* Zoom-in animation */
+    border: none; /* Remove border for cleaner look */
+    display: flex; /* Use flexbox for content arrangement */
+    flex-direction: column; /* Stack elements vertically */
+  }
+  
+  @keyframes zoomInModal {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  
+  .modalTitle {
+    font-size: 1.0625rem; /* ~17px, slightly smaller */
+    font-weight: 600;
+    color: #1d2129; /* Darker Facebook-like text */
+    margin: 0 0 6px 0; /* Reduced bottom margin */
+  }
+  
+  .modalDescription {
+    font-size: 0.875rem; /* 14px */
+    color: #606770; /* Facebook-like secondary text */
+    margin: 0 0 20px 0; /* Increased bottom margin before buttons */
+    line-height: 1.45; /* Slightly tighter line height */
+  }
+  
+  .modalDescription strong {
+    font-weight: 600; /* Keep bold */
+    color: #1d2129; /* Match title */
+  }
+  
+  .modalActions {
+    display: flex;
+    justify-content: flex-end; /* Keep buttons aligned right */
+    gap: 8px; /* Reduced gap */
+    margin: 0; /* Remove top margin, rely on description margin */
+    padding-top: 16px; /* Add padding above buttons */
+    border-top: 1px solid #e5e7eb; /* Subtle separator line */
+    width: calc(100% + 48px); /* Span full width + padding */
+    margin-left: -24px; /* Offset padding */
+    margin-right: -24px;
+    padding-left: 24px; /* Re-apply padding inside */
+    padding-right: 24px;
+    padding-bottom: 4px; /* Small bottom padding */
+  
+  }
+  
+  /* --- Button Styles --- */
+  .cancelButton,
+  .deleteButton {
+    padding: 8px 16px; /* Slightly less vertical padding */
+    border-radius: 6px; /* Slightly less rounded */
+    font-size: 0.875rem;
+    font-weight: 600; /* Bolder buttons */
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    border: none; /* Remove border */
+    line-height: 1.4;
+  }
+  
+  /* Cancel Button - Grey background */
+  .cancelButton {
+    background-color: #e4e6eb; /* Light grey background */
+    color: #1c1e21; /* Dark text */
+  }
+  .cancelButton:hover {
+    background-color: #dcdfe4; /* Slightly darker grey hover */
+  }
+  
+  /* Delete Button - Red background */
+  .deleteButton {
+    background-color: #dc2626; /* Red background */
+    color: #ffffff;
+  }
+  .deleteButton:hover {
+    background-color: #b91c1c; /* Darker red hover */
+  }
+  
+  /* Focus Styles */
+  .cancelButton:focus-visible,
+  .deleteButton:focus-visible {
+    outline: none;
+    /* Use accent color for focus ring on delete */
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.3); /* Accent color focus */
+  }
+  .cancelButton:focus-visible { /* Optional: Slightly different focus for cancel */
+     box-shadow: 0 0 0 3px rgba(190, 190, 190, 0.4);
+  }

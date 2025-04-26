@@ -1,0 +1,363 @@
+/* --- Color Palette --- */
+:root {
+  --bg-main: #f8f7fa;
+  --bg-chat-area: #ffffff;
+  --bg-input-area: #ffffff;
+  --input-bg: #f0f0f5;
+  --text-primary: #202123;
+  --text-secondary: #5f6368;
+  --text-user-message: #ffffff;
+  --bg-user-message: #4a4a4a;
+  --bg-ai-message: #f0f0f5;
+  --accent-color: #8a3fb3;
+  --accent-color-dark: #6a2d8a;
+  --accent-color-light: #c0a0d8;
+  --border-color: #e0e0e5;
+  --error-bg: #fddede;
+  --error-text: #d9534f;
+  --system-bg: #e8eaf0;
+  --system-text: #5f6368;
+  --syllabus-bg: #f0f4f8; /* Lighter, less green background */
+  --syllabus-border: #d6e2f0; /* Subtle blueish border */
+  --syllabus-text: #334e68; /* Dark blue-grey text */
+  --syllabus-title: #102a43; /* Very dark blue for titles */
+  --info-bg: #fff9c4;
+  --info-border: #fff59d;
+  --info-text: #795548;
+  --code-block-bg: #1e1e1e; /* Example dark background */
+  --code-block-text: #d4d4d4; /* Example light text */
+  --inline-code-bg: #e0e0e5;
+  /* --- UPDATED Copy Button Colors --- */
+  --copy-button-bg: #3a3a3a; /* Slightly lighter dark grey */
+  --copy-button-bg-hover: #525252; /* Hover state for the lighter grey */
+  --copy-button-color: #b0b0b0; /* Light grey icon color - better contrast */
+  --copy-button-copied-color: #4caf50; /* Keep green for checkmark */
+  /* --- ADD THESE VIOLET ACCENT VARIABLES --- */
+  --accent-violet-dark: #1f1d2b ; /* Darker Violet */
+  --accent-violet-main:#1f1d2b ; /* Main Violet */
+  --accent-violet-light: #1f1d2b ; /* Lighter Violet (alternative for disabled) */
+  --accent-violet-focus-shadow:#1f1d2b ; /* Violet shadow */
+  --accent-violet-disabled-bg:#1f1d2b ; /* Light violet for disabled send button */
+  --send-button-icon-color: #ffffff; /* White icon for send button */
+}
+
+/* --- Main Container --- */
+.chatContainer {
+  width: 100%;
+  height: 100vh; /* Full viewport height */
+  margin: 0;
+  background-color: var(--bg-main);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Prevent content from breaking layout */
+  color: var(--text-primary);
+  font-size: 16px; /* Base font size */
+}
+
+/* --- Chat History Area --- */
+.chatHistory {
+  flex-grow: 1; /* Takes up all available vertical space */
+  overflow-y: auto; /* Allows scrolling for message history */
+  padding: 20px 20px 10px 20px; /* Padding around messages */
+  background-color: var(--bg-chat-area);
+  display: flex;
+  flex-direction: column; /* Stack messages vertically */
+}
+
+.welcomeMessage {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 40px;
+    font-size: 1.1em;
+    font-style: italic;
+}
+
+
+/* --- General Message Styling --- */
+.message {
+  display: flex;
+  margin-bottom: 18px; /* Space between messages */
+  max-width: 85%; /* Limit width of messages */
+  word-wrap: break-word; /* Ensure long words break */
+}
+
+/* --- User Message Specific Styling --- */
+.userMessage {
+  align-self: flex-end; /* Align user messages to the right */
+  flex-direction: row-reverse; /* Reverse order for potential avatar */
+}
+
+.userMessage .messageContent {
+  background-color: var(--bg-user-message);
+  color: var(--text-user-message);
+  border-radius: 12px 12px 0 12px; /* Slightly different rounding */
+  padding: 12px 18px; /* Adjusted Padding */
+}
+
+/* --- AI Message Specific Styling --- */
+.aiMessage {
+  align-self: flex-start; /* Align AI messages to the left */
+}
+
+.aiMessage .messageContent {
+  background-color: var(--bg-ai-message);
+  color: var(--text-primary);
+  border-radius: 12px 12px 12px 0; /* Opposite rounding */
+  padding: 12px 18px; /* Adjusted Padding */
+  text-align: left; /* Ensure text inside aligns left */
+  overflow-wrap: break-word; /* Ensure long words break correctly */
+  word-break: break-word; /* Another property for breaking */
+}
+
+/* --- System Message Styling --- */
+.systemMessage {
+    align-self: center; /* Center general system messages */
+    width: 90%;
+    max-width: 600px;
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 15px;
+}
+
+/* Base style for system message content box */
+.systemMessage .messageContent {
+    background-color: var(--system-bg);
+    color: var(--system-text);
+    font-style: italic;
+    padding: 8px 12px;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    font-size: 0.9em;
+}
+
+/* --- Syllabus Message Specific Styling --- */
+.syllabusMessage {
+    align-self: flex-start; /* Align left like AI messages */
+    width: 90%;
+    max-width: 700px; /* Or adjust as needed */
+    text-align: left;
+    margin-top: 10px;
+    margin-bottom: 15px;
+}
+/* Override content box style for syllabus */
+.syllabusMessage .messageContent {
+    background-color: var(--syllabus-bg);
+    border: 1px solid var(--syllabus-border);
+    text-align: left;
+    font-style: normal;
+    color: var(--syllabus-text);
+    font-size: 0.95em;
+    padding: 15px 20px; /* More padding */
+}
+
+/* --- Styles for Parsed Syllabus Content --- */
+.syllabusParsedContent h4 { /* Style for the "Syllabus Draft/Update" title */
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--syllabus-title);
+    font-weight: 600;
+    font-size: 1.1em;
+}
+
+.syllabusParsedContent p {
+    margin: 0 0 8px 0; /* Consistent spacing below paragraphs */
+    line-height: 1.5;
+}
+
+.syllabusPhase {
+    font-weight: 600;
+    color: var(--syllabus-title);
+    margin-top: 12px; /* Add space above phase lines */
+    margin-bottom: 10px;
+    font-size: 1.05em;
+    border-bottom: 1px solid var(--syllabus-border); /* Separator line */
+    padding-bottom: 5px;
+}
+/* No extra top margin for the very first phase */
+.syllabusPhase:first-child {
+    margin-top: 0;
+}
+
+.syllabusTopicTitle {
+    font-weight: 500;
+    margin-left: 10px; /* Indent topic title slightly */
+    margin-top: 10px;
+    color: var(--syllabus-title); /* Use darker title color */
+}
+
+.syllabusTopicDetail {
+    margin-left: 20px; /* Indent keywords, objective, focus */
+    font-size: 0.95em;
+    color: #4a6580; /* Slightly lighter text for details */
+}
+
+.syllabusDetailLabel {
+    font-weight: 500; /* Make labels slightly bolder */
+    color: var(--syllabus-text); /* Use main syllabus text color */
+    margin-right: 5px; /* Space after label */
+}
+/* --- END NEW Parsed Syllabus Styles --- */
+
+
+/* --- Info Message Specific Styling --- */
+.infoMessage .messageContent {
+    background-color: var(--info-bg);
+    border: 1px solid var(--info-border);
+    color: var(--info-text);
+    font-style: normal;
+}
+
+.infoMessageContent { /* If rendering directly inside */
+    font-weight: 500;
+}
+
+/* --- Message Content Base --- */
+.messageContent {
+  line-height: 1.65; /* Adjusted Line Height */
+  font-size: 0.98em;
+}
+
+/* Style user text to preserve whitespace */
+.preformattedText {
+    white-space: pre-wrap;
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+}
+
+/* --- Markdown Specific Styling within AI Messages --- */
+.aiMessage .messageContent p {
+    margin-top: 0; /* No top margin on paragraphs */
+    margin-bottom: 0.8em; /* Space below paragraphs */
+    margin-left: 0; /* IMPORTANT: No left margin */
+    margin-right: 0; /* IMPORTANT: No right margin */
+    text-align: left; /* Ensure paragraphs are left-aligned */
+}
+.aiMessage .messageContent p:last-child {
+   margin-bottom: 0; /* No space after the last paragraph */
+}
+.aiMessage .messageContent strong, .aiMessage .messageContent b { font-weight: 600; }
+.aiMessage .messageContent em, .aiMessage .messageContent i { font-style: italic; }
+/* Adjusted List Spacing */
+.aiMessage .messageContent ul, .aiMessage .messageContent ol {
+  margin-top: 0.5em; margin-bottom: 0.8em; padding-left: 25px; margin-left: 5px;
+}
+.aiMessage .messageContent ul ul, .aiMessage .messageContent ol ol,
+.aiMessage .messageContent ul ol, .aiMessage .messageContent ol ul {
+  margin-top: 0.3em; margin-bottom: 0.3em;
+}
+.aiMessage .messageContent li { margin-bottom: 0.6em; list-style-position: outside; } /* More space between items */
+.aiMessage .messageContent ol { list-style-type: decimal; }
+.aiMessage .messageContent ul { list-style-type: disc; }
+/* End List Spacing */
+.aiMessage .messageContent hr { border: none; border-top: 1px solid #ccc; margin: 1.2em 0; } /* More space around HR */
+
+/* --- Code Styling --- */
+
+/* Style for inline code (`code`) */
+.inlineCode {
+  background-color: var(--inline-code-bg);
+  padding: 0.2em 0.4em;
+  margin: 0 0.1em; /* Add slight horizontal margin */
+  border-radius: 4px;
+  font-size: 0.9em; /* Slightly smaller */
+  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  color: var(--text-primary); /* Use primary text color */
+  vertical-align: baseline; /* Align better with surrounding text */
+}
+
+/* Wrapper for code blocks to position the copy button */
+.codeBlockWrapper {
+    position: relative; /* Allows absolute positioning of children */
+    margin: 1em 0; /* Keep vertical spacing */
+}
+
+/* Style for the highlighted code block container (from SyntaxHighlighter) */
+.codeBlock {
+   /* The SyntaxHighlighter component adds its own padding/margins */
+   /* We might only need to ensure font size and radius if the theme doesn't match */
+   font-size: 0.9em !important;
+   border-radius: 6px !important;
+   overflow: hidden !important;
+   /* Remove margin here, let the wrapper handle it */
+   margin: 0 !important;
+}
+
+/* Style for plain code blocks (no language) */
+.codeBlockPlain {
+    /* Remove margin here, let the wrapper handle it */
+    margin: 0;
+    padding: 14px;
+    background-color: var(--code-block-bg); /* Use dark theme background */
+    color: var(--code-block-text); /* Use light text */
+    border: 1px solid #444; /* Add subtle border */
+    border-radius: 6px;
+    overflow-x: auto; /* Allow horizontal scrolling */
+    font-size: 0.9em;
+    line-height: 1.45;
+    font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+    white-space: pre; /* Preserve whitespace */
+}
+/* Reset inner code style within the plain block */
+.codeBlockPlain code {
+     padding: 0;
+     background-color: transparent;
+     color: inherit;
+     font-family: inherit;
+     font-size: inherit;
+     white-space: inherit; /* Inherit pre's whitespace handling */
+}
+
+/* Copy Button Styling */
+.copyButton {
+    position: absolute;
+    top: 8px; /* Adjust as needed */
+    right: 8px; /* Adjust as needed */
+    background-color: var(--copy-button-bg); /* Uses updated variable */
+    color: var(--copy-button-color);       /* Uses updated variable */
+    border: none;
+    padding: 4px 8px; /* Smaller padding */
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+    opacity: 0.7; /* Make it slightly transparent initially */
+    transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+    z-index: 1; /* Ensure it's above the code */
+    display: flex; /* Align icon inside */
+    align-items: center;
+    justify-content: center;
+}
+
+.codeBlockWrapper:hover .copyButton,
+.copyButton:focus {
+    opacity: 1; /* Fully visible on hover/focus */
+}
+
+.copyButton:hover {
+    background-color: var(--copy-button-bg-hover); /* Uses updated variable */
+}
+
+.copyButton.copied {
+    /* Style for when copied */
+    background-color: var(--copy-button-bg); /* Keep background or change slightly */
+    color: var(--copy-button-copied-color); /* Change icon color to green */
+    opacity: 1; /* Keep it visible */
+}
+/* --- END Code Styling --- */
+
+
+/* --- Loading indicator, Error Display, Input Area, Textarea, Buttons --- */
+.loadingIndicator { color: var(--text-secondary); font-style: italic; padding: 5px 0; text-align: center; }
+.errorDisplay { padding: 10px 20px; background-color: var(--error-bg); color: var(--error-text); text-align: center; font-size: 0.9em; font-weight: 500; flex-shrink: 0; border-bottom: 1px solid #f1aeb5; }
+.inputArea { display: flex; align-items: flex-end; padding: 15px 20px; border-top: 1px solid var(--border-color); background-color: var(--bg-input-area); flex-shrink: 0; gap: 10px; }
+.inputField { flex-grow: 1; padding: 10px 15px; border: 1px solid var(--border-color); background-color: var(--input-bg); border-radius: 8px; font-size: 1em; line-height: 1.5; resize: none; color: var(--text-primary); font-family: inherit; min-height: 44px; max-height: 150px; overflow-y: auto; outline: none; transition: box-shadow 0.2s ease, border-color 0.2s ease; }
+.inputField::placeholder { color: var(--text-secondary); }
+.inputField:focus { border-color: var(--accent-violet-main); box-shadow: 0 0 0 1px var(--accent-violet-focus-shadow), }
+.inputField:disabled { background-color: #e9ecef; cursor: not-allowed; }
+.iconButton { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--border-color); background-color: transparent; color: var(--text-secondary); cursor: pointer; flex-shrink: 0; font-size: 0.8em; font-weight: bold; padding: 0; transition: background-color 0.2s ease; }
+.iconButton:hover:not(:disabled) { background-color: #f0f0f5; }
+.iconButton:disabled { opacity: 0.6; cursor: not-allowed; }
+.sendButton { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: none; background-color: var(--accent-violet-main); color:var(--send-button-icon-color); border-radius: 8px; cursor: pointer; transition: background-color 0.2s ease; flex-shrink: 0; }
+.sendButton:hover:not(:disabled) { background-color: var(--accent-violet-dark); }
+.sendButton:disabled { background-color: var(--accent-violet-disabled-bg); cursor: not-allowed; }

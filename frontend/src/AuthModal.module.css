@@ -1,0 +1,164 @@
+/* src/AuthModal.module.css */
+
+.modalOverlay {
+    position: fixed;
+    inset: 0; /* top/left/right/bottom = 0 */
+    background-color: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeInOverlay 0.2s ease-out forwards;
+    padding: 15px;
+  }
+  
+  @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+  
+  .modalContent {
+    background-color: #ffffff;
+    padding: 28px 32px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05);
+    max-width: 450px;
+    width: 100%;
+    z-index: 1001;
+    animation: zoomInModal 0.2s ease-out forwards;
+    position: relative; /* For positioning close button */
+  }
+  
+  @keyframes zoomInModal { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  
+  .closeButton {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: #6b7280; /* Muted icon color */
+    line-height: 1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .closeButton:hover {
+    background-color: #f3f4f6; /* Light hover */
+    color: #1f2937;
+  }
+  
+  .modalTitle {
+    font-size: 1.25rem; /* ~20px */
+    font-weight: 600;
+    color: #111827; /* Darker text */
+    margin: 0 0 24px 0; /* Space below title */
+    text-align: center;
+  }
+  
+  /* --- Form Styles --- */
+  .authForm {
+    display: flex;
+    flex-direction: column;
+    gap: 16px; /* Space between input groups */
+  }
+  
+  .inputGroup {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .inputGroup label {
+    font-size: 0.875rem; /* 14px */
+    font-weight: 500;
+    color: #374151; /* Medium dark grey */
+    margin-bottom: 6px;
+  }
+  
+  .inputGroup input[type="text"],
+  .inputGroup input[type="password"],
+  .inputGroup input[type="email"] /* Add email if needed */
+  {
+    padding: 10px 12px;
+    border: 1px solid #d1d5db; /* Grey border */
+    border-radius: 6px;
+    font-size: 0.9rem;
+    background-color: #fff;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .inputGroup input:focus {
+    outline: none;
+    border-color: var(--edit-input-focus-border, #4f46e5); /* Use accent from sidebar */
+    box-shadow: 0 0 0 3px var(--edit-input-focus-shadow, rgba(79, 70, 229, 0.2));
+  }
+  .inputGroup input:disabled {
+    background-color: #f3f4f6;
+    cursor: not-allowed;
+  }
+  
+  .apiKeyDescription {
+      font-size: 0.75rem; /* 12px */
+      color: #6b7280;
+      margin: 4px 0 0 0;
+  }
+  .apiKeyDescription a {
+      color: var(--edit-input-focus-border, #4f46e5);
+      text-decoration: none;
+  }
+  .apiKeyDescription a:hover {
+      text-decoration: underline;
+  }
+  
+  .submitButton {
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    border: none;
+    background-color: var(--edit-input-focus-border, #4f46e5); /* Accent color */
+    color: #ffffff;
+    margin-top: 8px; /* Space above button */
+  }
+  .submitButton:hover {
+    background-color: #4338ca; /* Darker accent */
+  }
+  .submitButton:disabled {
+    background-color: #a5b4fc; /* Lighter accent when disabled */
+    cursor: not-allowed;
+  }
+  
+  .errorMessage {
+    color: #dc2626; /* Red */
+    background-color: #fee2e2; /* Light red */
+    border: 1px solid #fca5a5; /* Red border */
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    text-align: center;
+    margin-bottom: 16px; /* Ensure space if error shown */
+    margin-top: 0;
+  }
+  
+  .switchModeText {
+    font-size: 0.875rem;
+    color: #4b5563;
+    text-align: center;
+    margin-top: 16px; /* Space above switch text */
+    margin-bottom: 0;
+  }
+  
+  .switchModeButton {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--edit-input-focus-border, #4f46e5);
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    font-size: inherit; /* Match surrounding text */
+  }
+  .switchModeButton:hover {
+    text-decoration: underline;
+  }
