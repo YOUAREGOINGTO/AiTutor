@@ -106,23 +106,29 @@ Follow these steps to set up and run the AI Tutor locally.
     cp .env.example .env
     ```
 
-2.  **Edit the `.env` file:** Open the `.env` file in your text editor and fill in the required values. This will typically include:
-    *   `DATABASE_URL` or individual `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` for PostgreSQL connection.
-    *   `API_KEY` for the AI/LLM service you are using.
-    *   Any other necessary configuration variables as defined in `.env.example`.
+2.  **Edit the `.env` file:** Open the `.env` file in your text editor and fill in the required values based on `.env.example`. This will typically include database credentials and your AI service API key.
 
     **Example `.env` structure (based on `.env.example`):**
     ```env
-    # Database Configuration (Example using URL format)
-    DATABASE_URL=postgresql://your_db_user:your_db_password@your_db_host:your_db_port/your_db_name
+    # Set to False in production for security!
+    DEBUG=True
 
-    # AI Service Configuration
-    OPENAI_API_KEY=sk-your_actual_api_key_here # Or the key for your specific service
+    # --- Database Credentials ---
+    # Ensure DB_ENGINE matches your setup (e.g., django.db.backends.postgresql)
+    DB_ENGINE=django.db.backends.postgresql
+    DB_NAME=ai_tutor_db         # Replace with your database name if different
+    DB_USER=your_db_username    # Replace with your actual database username
+    DB_PASSWORD=your_db_password  # Replace with your actual database password
+    DB_HOST=localhost           # Replace if your DB is not on localhost
+    DB_PORT=5432                # Replace if using a non-default port
 
-    # Other settings
-    SECRET_KEY=your_strong_secret_key # If applicable for web frameworks etc.
-    DEBUG=True # Set to False in production
+    # --- AI Service Settings ---
+    # Obtain your key from Google AI Studio or Google Cloud Console
+    GEMINI_API_KEY="your_google_gemini_api_key_goes_here"
     ```
+    *   **Important:** Replace placeholder values like `your_db_username`, `your_db_password`, and `"your_google_gemini_api_key_goes_here"` with your actual credentials and API key.
+    *   Make sure the `DB_ENGINE` matches the database backend you are using (PostgreSQL in this example).
+ 
 
 ### Database Setup (PostgreSQL)
 
