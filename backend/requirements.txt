@@ -10,7 +10,7 @@ Django==5.2
 django-cors-headers==4.7.0
 djangorestframework==3.16.0
 google-ai-generativelanguage==0.6.15
-google-api-core==2.24.2
+google-api-core==2.25.0rc0
 google-api-python-client==2.168.0
 google-auth==2.39.0
 google-auth-httplib2==0.2.0
@@ -45,3 +45,4 @@ urllib3==2.4.0
 uvicorn==0.34.2
 watchfiles==1.0.5
 websockets==15.0.1
+
