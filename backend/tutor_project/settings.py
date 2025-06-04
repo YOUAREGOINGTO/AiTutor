@@ -37,7 +37,8 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 if not GEMINI_API_KEY:
     print("WARNING: GEMINI_API_KEY not found in environment variables. AI features will likely fail.")
 
-DEFAULT_GEMINI_MODEL = os.environ.get('DEFAULT_GEMINI_MODEL', "gemini-1.5-flash") # Changed default slightly
+DEFAULT_GEMINI_MODEL = os.environ.get('DEFAULT_GEMINI_MODEL', "gemini-2.5-flash-preview-04-17") 
+GEMINI_DEFAULT_TEMPERATURE  = os.environ.get('GEMINI_DEFAULT_TEMPERATURE',0.7)
 DEFAULT_SAFETY_SETTINGS = [ # Define your default safety settings here
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
@@ -133,38 +134,44 @@ ASGI_APPLICATION = "tutor_project.asgi.application" # For ASGI deployments (like
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-# --- Load Database Credentials from Environment Variables ---
+# --- Load Database Credentials from Environment Variables --- For Postgres
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.environ.get('DB_NAME', 'ai_tutor_db'), # Sensible default name
+#         'USER': os.environ.get('DB_USER', 'postgres'),   # Sensible default user
+#         'PASSWORD': os.environ.get('DB_PASSWORD'),        # <<< NO DEFAULT PASSWORD!
+#         'HOST': os.environ.get('DB_HOST', 'localhost'),  # Sensible default host
+#         'PORT': os.environ.get('DB_PORT', '5432'),      # Sensible default port
+#     }
+# }
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'ai_tutor_db'), # Sensible default name
-        'USER': os.environ.get('DB_USER', 'postgres'),   # Sensible default user
-        'PASSWORD': os.environ.get('DB_PASSWORD'),        # <<< NO DEFAULT PASSWORD!
-        'HOST': os.environ.get('DB_HOST', 'localhost'),  # Sensible default host
-        'PORT': os.environ.get('DB_PORT', '5432'),      # Sensible default port
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3', # SQLite database file will be in the 'backend' directory
     }
 }
 
 # --- Check if DB_PASSWORD was loaded ---
-if not DATABASES['default'].get('PASSWORD'):
-    print("\n" + "="*60)
-    print(" DATABASE SECURITY WARNING ".center(60, "="))
-    print(" Database password (DB_PASSWORD) not found in environment.")
-    print(" Please ensure you have a .env file in the 'backend'")
-    print(" directory with DB_PASSWORD set.")
-    print(" Example .env content:")
-    print("   DB_NAME=ai_tutor_db")
-    print("   DB_USER=your_db_user")
-    print("   DB_PASSWORD=your_actual_secret_password")
-    print("   DB_HOST=localhost")
-    print("   DB_PORT=5432")
-    print(" Application might fail to connect to the database.")
-    print("="*60 + "\n")
-    # --- OPTIONAL: Raise an error to prevent running without a password ---
-    # raise ImproperlyConfigured(
-    #     "DB_PASSWORD environment variable not set. Create a .env file "
-    #     "in the 'backend' directory or set the environment variable."
-    # )
+# if not DATABASES['default'].get('PASSWORD'): # For Postgress
+#     print("\n" + "="*60)
+#     print(" DATABASE SECURITY WARNING ".center(60, "="))
+#     print(" Database password (DB_PASSWORD) not found in environment.")
+#     print(" Please ensure you have a .env file in the 'backend'")
+#     print(" directory with DB_PASSWORD set.")
+#     print(" Example .env content:")
+#     print("   DB_NAME=ai_tutor_db")
+#     print("   DB_USER=your_db_user")
+#     print("   DB_PASSWORD=your_actual_secret_password")
+#     print("   DB_HOST=localhost")
+#     print("   DB_PORT=5432")
+#     print(" Application might fail to connect to the database.")
+#     print("="*60 + "\n")
+#     # --- OPTIONAL: Raise an error to prevent running without a password ---
+#     # raise ImproperlyConfigured(
+#     #     "DB_PASSWORD environment variable not set. Create a .env file "
+#     #     "in the 'backend' directory or set the environment variable."
+#     # )
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -191,22 +198,14 @@ USE_TZ = True # Recommended for handling timezones correctly
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
-# --- Optional: Define STATIC_ROOT for production 'collectstatic' ---
-# STATIC_ROOT = BASE_DIR / 'staticfiles_collected'
-# --- Optional: Add STATICFILES_DIRS if you have static files outside apps ---
-# STATICFILES_DIRS = [ BASE_DIR / "static_global" ]
-# --- Optional: Configure Whitenoise storage for production ---
-# STORAGES = {
-#     "staticfiles": {
-#         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-#     },
-# }
 
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+MEDIA_URL = '/media/' # URL prefix for media files
+MEDIA_ROOT = BASE_DIR / 'media' # Absolute filesystem path to the directory for media files
+TEMP_UPLOAD_DIR_NAME = 'temp_chat_uploads'
+
+
 
 # --- Logging Configuration ---
 LOGGING = {
@@ -270,15 +269,3 @@ LOGGING = {
     }
 }
 
-# --- REST Framework Settings (Optional but common) ---
-# REST_FRAMEWORK = {
-#     'DEFAULT_AUTHENTICATION_CLASSES': [
-#         # Add authentication classes when you implement auth
-#         # 'rest_framework.authentication.SessionAuthentication',
-#         # 'rest_framework.authentication.TokenAuthentication',
-#     ],
-#     'DEFAULT_PERMISSION_CLASSES': [
-#         # Set default permissions (e.g., allow any for now, restrict later)
-#         'rest_framework.permissions.AllowAny',
-#     ]
-# }

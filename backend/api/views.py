@@ -2,39 +2,180 @@
 import json
 import logging
 import uuid
-import re # Added for internal tag checking
+import os
 import asyncio
 from typing import Dict, Any, Optional, List
-
 from django.http import JsonResponse, HttpRequest, Http404
 from django.views.decorators.csrf import csrf_exempt
 from asgiref.sync import sync_to_async as database_sync_to_async
-
+from django.conf import settings # To get MEDIA_ROOT
 from .models import ChatSession, ChatMessage
 from .orchestrator import (
     process_chat_message,
     STAGE_START, STAGE_NEGOTIATING, STAGE_EXPLAINING, STAGE_ERROR,
     STATE_STAGE, STATE_HISTORY, STATE_FINAL_SYLLABUS,
     STATE_EXPLAINER_PROMPT, STATE_EXPLANATION_START_INDEX,
-    STATE_DISPLAY_SYLLABUS, STATE_TRANSITION_EXPLAINER,
-    # --- ADD THESE TWO ---
-    STATE_CURRENT_TITLE,
-    STATE_GENERATED_TITLE
-    # --- END ADDITION ---
+    STATE_CURRENT_TITLE, STATE_GENERATED_TITLE,
+    STATE_DISPLAY_SYLLABUS_FLAG, STATE_TRANSITION_EXPLAINER_FLAG
+    # format_history_for_dspy # This helper is now in orchestrator.py
 )
+# from .ai_services import extract_xml # This is also in orchestrator.py if needed there, or keep a copy in ai_services.py for general use
 
+# For simulated resource loading (temporary)
+from .resource_processor import (_extract_text_from_txt_bytes,
+                               _extract_text_from_pdf_bytes,
+                               _extract_text_from_docx_bytes,process_uploaded_files)
 
 logger = logging.getLogger(__name__)
 
-# --- Define known internal command tags ---
 INTERNAL_COMMAND_TAGS = [
     "<request_syllabus_generation/>",
     "<request_syllabus_modification/>",
     "<request_finalization/>",
     "<persona/>",
 ]
+def save_extracted_text_to_server(
+    session_id: uuid.UUID,
+    original_filename: str,
+    text_content: str
+) -> Optional[str]:
+    """
+    Saves the given text content to a .txt file on the server
+    within a session-specific directory.
+    Returns the relative path to the saved file or None on failure.
+    """
+    try:
+        # Sanitize original_filename to create a safe new filename
+        base_name, _ = os.path.splitext(original_filename)
+        safe_base_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in base_name).rstrip()
+        if not safe_base_name: # Handle cases where filename becomes empty after sanitization
+            safe_base_name = f"resource_{uuid.uuid4().hex[:8]}"
+        
+        txt_filename = f"{safe_base_name}.txt"
 
+        # Create a session-specific directory path
+        # MEDIA_ROOT / uploaded_resources / <session_id_str> / file.txt
+        session_dir_name = str(session_id)
+        relative_session_path = os.path.join('uploaded_resources', session_dir_name)
+        absolute_session_dir = os.path.join(settings.MEDIA_ROOT, relative_session_path)
+        
+        os.makedirs(absolute_session_dir, exist_ok=True) # Create directory if it doesn't exist
+
+        absolute_file_path = os.path.join(absolute_session_dir, txt_filename)
+        
+        # Prevent simple path traversal (though os.path.join usually handles this for basename)
+        if os.path.commonprefix((os.path.realpath(absolute_file_path), settings.MEDIA_ROOT)) != str(settings.MEDIA_ROOT):
+            logger.error(f"Potential path traversal attempt for filename '{txt_filename}' in session '{session_id}'. Denying save.")
+            return None
+
+        with open(absolute_file_path, 'w', encoding='utf-8') as f:
+            f.write(text_content)
+        
+        # Return the path relative to MEDIA_ROOT for storage in the model
+        relative_file_path = os.path.join(relative_session_path, txt_filename)
+        logger.info(f"Saved extracted text from '{original_filename}' to '{relative_file_path}' for session '{session_id}'.")
+        return relative_file_path
+    except Exception as e:
+        logger.error(f"Error saving extracted text for '{original_filename}' (session {session_id}): {e}", exc_info=True)
+        return None
 # --- Database Helper Functions (Async) ---
+# api/views.py
+# ... (existing imports) ...
+import uuid # For generating unique temp filenames
+import os
+from django.conf import settings
+from django.http import JsonResponse, HttpRequest
+from django.views.decorators.csrf import csrf_exempt # If needed for this new endpoint
+from .resource_processor import process_uploaded_files # Assuming this can handle a list with one file
+
+logger = logging.getLogger(__name__)
+
+
+@csrf_exempt 
+async def upload_temp_resource_view(request: HttpRequest):
+    if request.method != 'POST':
+        return JsonResponse({"success": False, "error": "Method Not Allowed"}, status=405)
+
+    try:
+        if not request.FILES.getlist('resource_file'): # Frontend will send as 'resource_file'
+            return JsonResponse({"success": False, "error": "No file provided in 'resource_file' field."}, status=400)
+
+        uploaded_file = request.FILES.getlist('resource_file')[0] # Get the first (and only) file
+        original_filename = uploaded_file.name
+
+        logger.info(f"Temporary upload: Received '{original_filename}' for pre-processing.")
+
+        # Use existing process_uploaded_files by wrapping the single file in a list
+        extracted_data = process_uploaded_files([uploaded_file])
+
+        if not extracted_data or original_filename not in extracted_data:
+            logger.error(f"Temporary upload: Failed to extract text from '{original_filename}'.")
+            return JsonResponse({"success": False, "error": f"Could not extract text from {original_filename}."}, status=500)
+
+        text_content = extracted_data[original_filename]
+
+        # --- Save extracted text to a temporary file ---
+        temp_dir_path = os.path.join(settings.MEDIA_ROOT, settings.TEMP_UPLOAD_DIR_NAME)
+        os.makedirs(temp_dir_path, exist_ok=True)
+
+        # Generate a unique filename for the temporary text file
+        temp_text_filename = f"{uuid.uuid4().hex}.txt"
+        temp_text_filepath = os.path.join(temp_dir_path, temp_text_filename)
+
+        with open(temp_text_filepath, 'w', encoding='utf-8') as f:
+            f.write(text_content)
+
+        logger.info(f"Temporary upload: Saved extracted text for '{original_filename}' to temp file '{temp_text_filename}'.")
+
+        return JsonResponse({
+            "success": True,
+            "tempServerId": temp_text_filename, # This is the ID the frontend needs
+            "originalFilename": original_filename # Send back original name for later use
+        }, status=200)
+
+    except Exception as e:
+        logger.error(f"Error in upload_temp_resource_view: {e}", exc_info=True)
+        return JsonResponse({"success": False, "error": "Internal server error during temporary file processing."}, status=500)
+# @database_sync_to_async # For now Resource Uploading is Synchronous
+def load_and_extract_simulated_resources(file_paths: List[str]) -> Dict[str, str]:
+    extracted_data = {}
+    if not file_paths:
+        return extracted_data
+    logger.info(f"Simulating resource loading for {len(file_paths)} paths in view.")
+    for file_path in file_paths:
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            logger.error(f"Simulated resource: Path '{file_path}' not found or not a file. Skipping.")
+            continue
+        filename = os.path.basename(file_path)
+        try:
+            with open(file_path, 'rb') as f:
+                file_bytes = f.read()
+            
+            # Get file extension
+            ext = ''
+            if '.' in filename:
+                ext = filename.split('.')[-1].lower()
+            
+            text_content = None
+            if ext == 'txt':
+                text_content = _extract_text_from_txt_bytes(file_bytes, filename)
+            elif ext == 'pdf':
+                text_content = _extract_text_from_pdf_bytes(file_bytes, filename)
+            elif ext == 'docx':
+                text_content = _extract_text_from_docx_bytes(file_bytes, filename)
+            else:
+                logger.warning(f"Simulated resource: Unsupported file type '{filename}' with extension '{ext}'. Skipping.")
+                continue
+            
+            if text_content:
+                extracted_data[filename] = text_content
+                logger.info(f"Simulated resource: Loaded '{filename}', length {len(text_content)} chars.")
+            else:
+                logger.warning(f"Simulated resource: No text extracted from '{filename}'.")
+        except Exception as e:
+            logger.error(f"Simulated resource: Error loading '{filename}': {e}", exc_info=True)
+    return extracted_data
+
 
 @database_sync_to_async
 def get_or_create_session(session_id_str: Optional[str]) -> tuple[ChatSession, bool]:
@@ -64,13 +205,24 @@ def get_or_create_session(session_id_str: Optional[str]) -> tuple[ChatSession, b
 
 @database_sync_to_async
 def load_chat_history(session: ChatSession) -> List[Dict[str, Any]]:
-    """Loads and formats chat history (role, parts with text) for orchestrator."""
-    messages = ChatMessage.objects.filter(session=session).order_by('timestamp', 'order').values('role', 'content')
-    # Format matches Gemini's expected input history structure
-    history = [{"role": msg['role'], "parts": [{'text': msg['content']}]} for msg in messages]
-    logger.info(f"Loaded {len(history)} messages for session {session.session_id} (orchestrator format)")
+    logger.debug(f"Loading chat history for session {session.session_id}...")
+    messages_from_db = ChatMessage.objects.filter(session=session).order_by('timestamp', 'order').values(
+        'role', 
+        'content', 
+        'message_type'  # We confirmed this should be here
+    )
+    
+    history = []
+    for msg_data in messages_from_db:
+        history_item = {
+            "role": msg_data['role'],
+            "parts": [{'text': msg_data['content']}],
+            "message_type": msg_data['message_type'] # And included here
+        }
+        history.append(history_item)
+        logger.debug(f"Loaded DB msg for history: Role='{msg_data['role']}', DB_Msg_Type='{msg_data['message_type']}', Content='{msg_data['content'][:30]}...'") # ADD THIS LOG
+    logger.info(f"Loaded {len(history)} messages for session {session.session_id} (orchestrator format, with message_type).")
     return history
-
 @database_sync_to_async
 def save_message(session: ChatSession, role: str, content: str, order: int, message_type: Optional[str] = None) -> Optional[ChatMessage]:
     """
@@ -102,6 +254,13 @@ def save_message(session: ChatSession, role: str, content: str, order: int, mess
          if "--- Starting Learning Session ---" in content:
              determined_type = 'info'
          # else: keep default 'message' for other system msgs
+    logger.info(
+        f"SAVE_MESSAGE: About to create ChatMessage. "
+        f"Role='{role}', Order={order}, "
+        f"DETERMINED_TYPE_TO_SAVE='{determined_type}', " # <<< MOST IMPORTANT
+        f"Content Snippet='{content[:70]}...'"
+    )
+    # ---- END ADD THIS LOG ----
 
     try:
         msg = ChatMessage.objects.create(
@@ -113,10 +272,11 @@ def save_message(session: ChatSession, role: str, content: str, order: int, mess
         logger.error(f"DB error saving msg order {order} for session {session.session_id}: {e}", exc_info=True)
         return None
 
+
+
 @database_sync_to_async
 def update_session_state(session: ChatSession, new_state: Dict[str, Any]):
-    """Updates persistent state fields on the ChatSession model."""
-    try: session.refresh_from_db() # Refresh to avoid race conditions if needed elsewhere
+    try: session.refresh_from_db()
     except Exception as e: logger.error(f"Failed refresh session {session.session_id} before update: {e}")
 
     stage = new_state.get(STATE_STAGE)
@@ -124,7 +284,12 @@ def update_session_state(session: ChatSession, new_state: Dict[str, Any]):
     explainer_prompt = new_state.get(STATE_EXPLAINER_PROMPT)
     explainer_index = new_state.get(STATE_EXPLANATION_START_INDEX)
 
-    updated_fields = ['updated_at'] # Always update this
+    res_type = new_state.get("resource_type_for_syllabus_gen") # Match orchestrator key
+    res_content_json = new_state.get("resource_content_json_for_syllabus_gen") # Match orchestrator key
+    raw_data_dynamic = new_state.get('raw_resource_data_for_dynamic_summary') # Match orchestrator key
+    initial_summary_mgr = new_state.get("resource_summary_overview_for_manager") # Match orchestrator key
+
+    updated_fields = ['updated_at']
     changed = False
 
     if stage and session.current_stage != stage:
@@ -135,242 +300,302 @@ def update_session_state(session: ChatSession, new_state: Dict[str, Any]):
         session.explainer_system_prompt = explainer_prompt; updated_fields.append('explainer_system_prompt'); changed = True
     if explainer_index is not None and session.explanation_start_index != explainer_index:
         session.explanation_start_index = explainer_index; updated_fields.append('explanation_start_index'); changed = True
+    
+    # Persist resource info if it's different
+    if res_type is not None and session.processed_resource_type != res_type:
+        session.processed_resource_type = res_type; updated_fields.append('processed_resource_type'); changed = True
+    if res_content_json is not None and session.processed_resource_content_json != res_content_json:
+        session.processed_resource_content_json = res_content_json; updated_fields.append('processed_resource_content_json'); changed = True
+    
+    if raw_data_dynamic is not None: # This is a Dict
+        raw_data_dynamic_json_str = json.dumps(raw_data_dynamic)
+        if session.raw_data_for_dynamic_summary_json != raw_data_dynamic_json_str:
+            session.raw_data_for_dynamic_summary_json = raw_data_dynamic_json_str
+            updated_fields.append('raw_data_for_dynamic_summary_json')
+            changed = True
+    elif session.raw_data_for_dynamic_summary_json is not None: # Clear it if not present in new_state
+        session.raw_data_for_dynamic_summary_json = None
+        updated_fields.append('raw_data_for_dynamic_summary_json'); changed = True
+
+    if initial_summary_mgr is not None and session.initial_resource_summary_for_manager != initial_summary_mgr:
+        session.initial_resource_summary_for_manager = initial_summary_mgr
+        updated_fields.append('initial_resource_summary_for_manager'); changed = True
+
 
     if changed:
         try:
-            session.save(update_fields=updated_fields)
+            session.save(update_fields=list(set(updated_fields))) # Use set to avoid duplicates
             logger.info(f"Updated session {session.session_id} state. Fields: {updated_fields}")
         except Exception as e:
             logger.error(f"DB error updating session state for {session.session_id}: {e}", exc_info=True)
     else:
-        # If only updated_at needs saving (no state change, just activity)
-        try:
-             session.save(update_fields=['updated_at'])
-        except Exception as e:
-             logger.error(f"DB error updating session updated_at for {session.session_id}: {e}", exc_info=True)
+        try: session.save(update_fields=['updated_at'])
+        except Exception as e: logger.error(f"DB error updating session updated_at for {session.session_id}: {e}", exc_info=True)
 
-
-# --- API View Functions ---
-
-# --- Main Chat Endpoint (POST message) ---
-@csrf_exempt # Exempt the main chat endpoint
+@csrf_exempt
 async def plain_django_chat_view(request: HttpRequest):
-    """Handles POST requests for sending messages."""
-    if request.method == 'POST':
-        # ... (Implementation remains the same as provided before) ...
-        # ... It uses the updated save_message internally ...
-        logger.info("------ Chat Message Handler (POST /api/chat/) ------")
-        session: Optional[ChatSession] = None
-        history_from_db: List[Dict[str, Any]] = []
-        try:
-            body = request.body; request_data = {}
-            if not body: return JsonResponse({"error": "Request body empty."}, status=400)
-            try: request_data = json.loads(body); logger.debug(f"Received data: {request_data}")
-            except json.JSONDecodeError: return JsonResponse({"error": "Invalid JSON."}, status=400)
-            user_message = request_data.get('user_message'); session_id_str = request_data.get('session_id')
-            if not user_message or not isinstance(user_message, str): return JsonResponse({"error": "user_message required."}, status=400)
-            if session_id_str is not None and not isinstance(session_id_str, str): logger.warning(f"Received non-string session_id: {type(session_id_str)}. Treating as null."); session_id_str = None
-
-            session, is_new_session = await get_or_create_session(session_id_str)
-            history_from_db = await load_chat_history(session) # For orchestrator context
-
-            current_state = { STATE_STAGE: session.current_stage, STATE_HISTORY: list(history_from_db), STATE_FINAL_SYLLABUS: session.final_syllabus_xml, STATE_EXPLAINER_PROMPT: session.explainer_system_prompt, STATE_EXPLANATION_START_INDEX: session.explanation_start_index,STATE_CURRENT_TITLE: session.title, }
-            logger.debug(f"View prepared current_state: Stage='{current_state.get(STATE_STAGE)}', Title='{current_state.get(STATE_CURRENT_TITLE)}', History Len={len(current_state.get(STATE_HISTORY))}") 
-
-            last_saved_message = await database_sync_to_async( ChatMessage.objects.filter(session=session).order_by('-timestamp', '-order').first )()
-            last_order = last_saved_message.order if last_saved_message else -1
-            user_message_order = last_order + 1
-            await save_message(session, 'user', user_message, user_message_order, message_type='message')
-
-            history_len_before_user_msg = len(current_state[STATE_HISTORY])
-            current_state[STATE_HISTORY].append({'role': 'user', 'parts': [{'text': user_message}]})
-
-            logger.info(f"Processing message for session {session.session_id} (New: {is_new_session}) in stage: {current_state.get(STATE_STAGE)}")
-            ai_reply, new_state = await process_chat_message(user_message, current_state) # Orchestrator call
-
-            # Save messages added by orchestrator
-            returned_history = new_state.get(STATE_HISTORY, [])
-            num_new_messages = len(returned_history) - (history_len_before_user_msg + 1)
-            if num_new_messages > 0:
-                 logger.info(f"View found {num_new_messages} new message(s) added by orchestrator.")
-                 start_index_in_returned = history_len_before_user_msg + 1
-                 for i in range(num_new_messages):
-                     msg_index = start_index_in_returned + i
-                     if msg_index < len(returned_history):
-                         message_to_save = returned_history[msg_index]; msg_role = message_to_save.get("role", "unknown")
-                         if msg_role != "user":
-                             parts_list = message_to_save.get('parts', []); msg_content = ""
-                             if isinstance(parts_list, list) and len(parts_list) > 0: first_part = parts_list[0]; msg_content = first_part.get('text', '') if isinstance(first_part, dict) else first_part if isinstance(first_part, str) else ""
-                             elif isinstance(parts_list, str): msg_content = parts_list
-                             await save_message(session, msg_role, msg_content, user_message_order + 1 + i) # Uses updated save_message
-                         else: logger.warning(f"Orchestrator added 'user' message at index {msg_index}.")
-            elif ai_reply and (not returned_history or returned_history[-1].get('role') == 'user'):
-                 logger.warning(f"Orchestrator didn't add AI message to history list. Saving ai_reply separately.")
-                 await save_message(session, 'model', ai_reply, user_message_order + 1) # Uses updated save_message
-            elif not ai_reply and num_new_messages == 0: logger.warning(f"Orchestrator returned no ai_reply and added no messages.")
-
-            await update_session_state(session, new_state)
-            generated_title = new_state.get(STATE_GENERATED_TITLE)
-            if generated_title and isinstance(generated_title, str) and generated_title.strip():
-                try:
-                    # Refresh just the title field to get the most current value before comparing
-                    await session.arefresh_from_db(fields=['title'])
-                    logger.debug(f"VIEW: Refreshed title is '{session.title}' before save check.")
-                except Exception as refresh_err:
-                    logger.error(f"VIEW: Error refreshing session title before save check: {refresh_err}")
-                    # Proceed cautiously, compare against potentially stale session.title
-
-                # Save only if the title in the DB is different from the generated one
-                if session.title != generated_title:
-                    logger.info(f"View received generated title '{generated_title}' from orchestrator. Saving...")
-                    try:
-                        session.title = generated_title # Update object in memory
-                        # Save ONLY the title field. updated_at was handled by update_session_state.
-                        await database_sync_to_async(session.save)(update_fields=['title'])
-                        logger.info(f"View successfully saved generated title for session {session.session_id}")
-                    except Exception as save_err:
-                        logger.error(f"View failed to save generated title '{generated_title}': {save_err}", exc_info=True)
-                else:
-                    logger.debug(f"View received generated title '{generated_title}', but session title already matches. Skipping save.")
-            elif generated_title is not None:
-                 logger.warning(f"Orchestrator returned a non-True generated title: '{generated_title}'. Skipping title save.")
-
-
-            response_data = { "ai_reply": ai_reply, "new_state": { STATE_STAGE: new_state.get(STATE_STAGE, session.current_stage), STATE_DISPLAY_SYLLABUS: new_state.get(STATE_DISPLAY_SYLLABUS), STATE_TRANSITION_EXPLAINER: new_state.get(STATE_TRANSITION_EXPLAINER, False), }, "session_id": str(session.session_id) }
-            logger.info(f"Successfully processed message for session {session.session_id}. Returning state flags: {response_data['new_state']}")
-            return JsonResponse(response_data, status=200)
-        except Exception as e:
-            logger.error(f"Unexpected error processing message for session {session.session_id if session else 'None'}: {e}", exc_info=True); error_stage = STAGE_ERROR; session_id_to_return = str(session.session_id) if session else None
-            if session: 
-                try: session.current_stage = STAGE_ERROR; await database_sync_to_async(session.save)(update_fields=['current_stage', 'updated_at']); logger.info(f"Set session stage to ERROR.") 
-                except Exception as db_err: logger.error(f"CRITICAL: Failed to update session stage to ERROR: {db_err}", exc_info=True)
-            return JsonResponse({"ai_reply": "[SYSTEM ERROR]", "new_state": { STATE_STAGE: error_stage }, "session_id": session_id_to_return}, status=500)
-    else:
+    if request.method != 'POST':
+        logger.warning(f"Unsupported method on /api/chat/: {request.method}")
         return JsonResponse({"error": f"Method {request.method} Not Allowed"}, status=405, headers={"Allow": "POST"})
 
-# @csrf_exempt
-# async def plain_django_chat_view(request: HttpRequest):
-#     """
-#     Handles POST requests for sending messages. Loads/creates session, passes state
-#     (including current title) to the orchestrator, processes orchestrator's response,
-#     saves messages, saves generated title if provided by orchestrator, updates
-#     session state (stage, etc.), and returns the immediate AI reply to the frontend.
-#     """
-#     if request.method == 'POST':
-#         logger.info("------ Chat Message Handler (POST /api/chat/) ------")
-#         session: Optional[ChatSession] = None
-#         try:
-#             # --- 1. Request Parsing and Validation ---
-#             body = request.body; request_data = {}
-#             if not body: return JsonResponse({"error": "Request body empty."}, status=400)
-#             try: request_data = json.loads(body); logger.debug(f"Received data: {request_data}")
-#             except json.JSONDecodeError: return JsonResponse({"error": "Invalid JSON."}, status=400)
-#             user_message = request_data.get('user_message'); session_id_str = request_data.get('session_id')
-#             if not user_message or not isinstance(user_message, str): return JsonResponse({"error": "user_message required."}, status=400)
-#             if session_id_str is not None and not isinstance(session_id_str, str): session_id_str = None; logger.warning("Invalid session_id type.")
+    logger.info("------ Chat Message Handler (POST /api/chat/) ------")
+    session_model_instance: Optional[ChatSession] = None
+    # This will hold data for orchestrator, derived from temp files or direct upload
+    orchestrator_resource_data: Optional[Dict[str, str]] = None
+    # This will hold info about temp files to be finalized after session creation
+    temp_resources_to_finalize: List[Dict[str, Any]] = [] # Ensure it's always a list
 
-#             # --- 2. Load/Create Session and History ---
-#             session, is_new_session = await get_or_create_session(session_id_str)
-#             history_for_orchestrator = await load_chat_history(session)
+    try:
+        # --- 1. Request Parsing and Validation ---
+        user_message_text: Optional[str] = None
+        session_id_str_from_request: Optional[str] = None
+        direct_uploaded_files: List[Any] = [] # For direct multipart upload (fallback)
+        # Frontend sends: temp_resources: [{tempServerId: "uuid.txt", originalFilename: "user_file.pdf"}]
+        temp_resources_payload: Optional[List[Dict[str, str]]] = None
 
-#             # --- 3. Prepare Current State for Orchestrator ---
-#             current_state_for_orchestrator = { # Use a distinct name
-#                 STATE_STAGE: session.current_stage,
-#                 STATE_HISTORY: list(history_for_orchestrator),
-#                 STATE_FINAL_SYLLABUS: session.final_syllabus_xml,
-#                 STATE_EXPLAINER_PROMPT: session.explainer_system_prompt,
-#                 STATE_EXPLANATION_START_INDEX: session.explanation_start_index,
-#                 STATE_CURRENT_TITLE: session.title, # Pass current title
-#             }
-#             logger.debug(f"View prepared state: Stage='{current_state_for_orchestrator.get(STATE_STAGE)}', Title='{current_state_for_orchestrator.get(STATE_CURRENT_TITLE)}', History Len={len(current_state_for_orchestrator.get(STATE_HISTORY))}")
+        if 'multipart/form-data' in request.content_type: # Fallback for direct upload
+            user_message_text = request.POST.get('user_message')
+            session_id_str_from_request = request.POST.get('session_id')
+            direct_uploaded_files = request.FILES.getlist('resource_files')
+            logger.info(f"Multipart request: User msg: '{user_message_text}', Session: {session_id_str_from_request}, Files: {len(direct_uploaded_files)}")
+        else: # JSON request (expected for new flow with temp_resources)
+            try:
+                request_data = json.loads(request.body)
+                user_message_text = request_data.get('user_message')
+                session_id_str_from_request = request_data.get('session_id')
+                temp_resources_payload = request_data.get('temp_resources') # Array of {tempServerId, originalFilename}
+                logger.info(f"JSON request: User msg: '{user_message_text}', Session: {session_id_str_from_request}, Temp Resources: {len(temp_resources_payload) if temp_resources_payload else 0}")
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON in request body (and not multipart).")
+                return JsonResponse({"error": "Invalid JSON or request format."}, status=400)
 
-#             # --- 4. Save User Message ---
-#             last_saved_message = await database_sync_to_async( ChatMessage.objects.filter(session=session).order_by('-timestamp', '-order').first )()
-#             last_order = last_saved_message.order if last_saved_message else -1
-#             user_message_order = last_order + 1
-#             await save_message(session, 'user', user_message, user_message_order, message_type='message')
+        if not user_message_text and not temp_resources_payload and not direct_uploaded_files:
+            return JsonResponse({"error": "A 'user_message' or 'temp_resources' or direct file uploads are required."}, status=400)
+        
+        user_message_text = user_message_text or "" # Ensure it's a string if None (e.g. only files sent)
 
-#             # --- 5. Add User Message to In-Memory History for Orchestrator Call ---
-#             current_state_for_orchestrator[STATE_HISTORY].append({'role': 'user', 'parts': [{'text': user_message}]})
+        if session_id_str_from_request is not None and not isinstance(session_id_str_from_request, str):
+            logger.warning(f"Invalid session_id format received: {session_id_str_from_request}. Treating as new session if applicable.")
+            session_id_str_from_request = None
 
-#             logger.info(f"Processing message for session {session.session_id} (New: {is_new_session}) in stage: {current_state_for_orchestrator.get(STATE_STAGE)}")
 
-#             # --- 6. Call the Core Orchestrator Logic ---
-#             ai_reply, new_state_from_orchestrator = await process_chat_message(user_message, current_state_for_orchestrator) # Use distinct name
+        # --- 2. Load/Create Session and History ---
+        session_model_instance, is_new_session = await get_or_create_session(session_id_str_from_request)
+        orchestrator_input_history = await load_chat_history(session_model_instance)
+        # --- End 2. ---
 
-#             # --- 7. Save AI/System Message(s) Added by Orchestrator ---
-#             returned_history = new_state_from_orchestrator.get(STATE_HISTORY, [])
-#             history_len_before_llm_msgs = len(current_state_for_orchestrator[STATE_HISTORY]) # Length *after* user msg was added in memory
-#             num_new_messages_by_llm = len(returned_history) - history_len_before_llm_msgs
-#             if num_new_messages_by_llm > 0:
-#                 logger.info(f"View found {num_new_messages_by_llm} new message(s).")
-#                 start_index_in_returned = history_len_before_llm_msgs
-#                 for i in range(num_new_messages_by_llm):
-#                      msg_index = start_index_in_returned + i
-#                      if msg_index < len(returned_history):
-#                          message_to_save = returned_history[msg_index]; msg_role = message_to_save.get("role", "unknown")
-#                          if msg_role != "user":
-#                              parts_list = message_to_save.get('parts', []); msg_content = ""
-#                              if isinstance(parts_list, list) and parts_list: first_part = parts_list[0]; msg_content = first_part.get('text', '') if isinstance(first_part, dict) else first_part if isinstance(first_part, str) else ""
-#                              elif isinstance(parts_list, str): msg_content = parts_list
-#                              await save_message(session, msg_role, msg_content, user_message_order + 1 + i)
-#                          else: logger.warning(f"Orchestrator added 'user' msg at index {msg_index}.")
-#             elif ai_reply:
-#                 logger.warning(f"Orchestrator didn't add AI msg. Saving ai_reply separately.")
-#                 await save_message(session, 'model', ai_reply, user_message_order + 1)
-#             else: logger.warning(f"No new messages or reply from orchestrator.")
+        # --- 3. Prepare Resource Data for Orchestrator ---
+        if is_new_session:
+            if temp_resources_payload: # New flow: Use pre-processed temporary files
+                logger.info(f"New session ({session_model_instance.session_id}): Processing {len(temp_resources_payload)} pre-uploaded temp resources.")
+                orchestrator_resource_data = {}
+                temp_dir_path = os.path.join(settings.MEDIA_ROOT, settings.TEMP_UPLOAD_DIR_NAME)
 
-#             # --- 8. Update Session State (Stage, Prompts, etc.) ---
-#             # This saves fields based on the 'new_state' dict AND updates 'updated_at'.
-#             await update_session_state(session, new_state_from_orchestrator)
+                for res_info in temp_resources_payload:
+                    temp_server_id = res_info.get('tempServerId')
+                    original_filename = res_info.get('originalFilename')
+                    if not temp_server_id or not original_filename:
+                        logger.warning(f"Skipping invalid temp resource info in payload: {res_info}")
+                        continue
 
-#             # --- 9. Save Generated Title IF Returned by Orchestrator ---
-#             # This block runs *after* update_session_state
-#             generated_title = new_state_from_orchestrator.get(STATE_GENERATED_TITLE)
-#             if generated_title and isinstance(generated_title, str) and generated_title.strip():
-#                 # Refreshing ensures we compare against the most current DB state *after* step 8 ran.
-#                 await session.arefresh_from_db(fields=['title'])
-#                 if session.title != generated_title:
-#                     logger.info(f"View received generated title '{generated_title}' from orchestrator. Saving...")
-#                     try:
-#                         session.title = generated_title # Update object in memory
-#                         # Save ONLY the title field. `updated_at` was handled by update_session_state.
-#                         await database_sync_to_async(session.save)(update_fields=['title'])
-#                         logger.info(f"View successfully saved generated title for session {session.session_id}")
-#                     except Exception as save_err:
-#                         logger.error(f"View failed to save generated title '{generated_title}': {save_err}", exc_info=True)
-#                         # Optionally revert session.title in memory
-#                         # session.title = current_state_for_orchestrator.get(STATE_CURRENT_TITLE, DEFAULT_CHAT_TITLE)
-#                 else:
-#                     logger.debug(f"View received generated title '{generated_title}', but session title already matches. Skipping save.")
-#             elif generated_title is not None:
-#                  logger.warning(f"Orchestrator returned a non-True generated title: '{generated_title}'. Skipping title save.")
-#             # else: No generated title key provided by orchestrator.
+                    temp_filepath = os.path.join(temp_dir_path, temp_server_id)
+                    if os.path.exists(temp_filepath) and os.path.isfile(temp_filepath):
+                        try:
+                            with open(temp_filepath, 'r', encoding='utf-8') as f:
+                                text_content = f.read()
+                            orchestrator_resource_data[original_filename] = text_content
+                            temp_resources_to_finalize.append({
+                                "temp_filepath": temp_filepath,
+                                "original_filename": original_filename,
+                                "text_content": text_content
+                            })
+                            logger.debug(f"Loaded text from temp file: {temp_server_id} for orchestrator.")
+                        except Exception as e:
+                            logger.error(f"Error reading temp file {temp_server_id}: {e}", exc_info=True)
+                    else:
+                        logger.warning(f"Temp resource file not found or is not a file: {temp_filepath}. It might have been already processed or deleted.")
+                if not orchestrator_resource_data: orchestrator_resource_data = None # Ensure None if empty
 
-#             # --- 10. Prepare and Send Response ---
-#             response_data = {
-#                 "ai_reply": ai_reply,
-#                 "new_state": {
-#                     STATE_STAGE: new_state_from_orchestrator.get(STATE_STAGE, session.current_stage),
-#                     STATE_DISPLAY_SYLLABUS: new_state_from_orchestrator.get(STATE_DISPLAY_SYLLABUS),
-#                     STATE_TRANSITION_EXPLAINER: new_state_from_orchestrator.get(STATE_TRANSITION_EXPLAINER, False),
-#                 },
-#                 "session_id": str(session.session_id)
-#             }
-#             logger.info(f"Successfully processed message for session {session.session_id}. Returning state flags: {response_data['new_state']}")
-#             return JsonResponse(response_data, status=200)
+            elif direct_uploaded_files: # Fallback: Direct multipart upload on new session
+                logger.info(f"New session ({session_model_instance.session_id}): Processing {len(direct_uploaded_files)} directly uploaded files.")
+                orchestrator_resource_data = process_uploaded_files(direct_uploaded_files)
+                # For this flow, text_content will be saved directly later, no temp_resources_to_finalize
+            else:
+                logger.info(f"New session ({session_model_instance.session_id}): No resources provided.")
+        # --- End 3. ---
 
-#         # --- Error Handling ---
-#         except Exception as e:
-#              logger.error(f"Unexpected error processing message for session {session.session_id if session else 'None'}: {e}", exc_info=True); error_stage = STAGE_ERROR; session_id_to_return = str(session.session_id) if session else None
-#              if session: 
-#                  try: session.current_stage = STAGE_ERROR; await database_sync_to_async(session.save)(update_fields=['current_stage', 'updated_at']); logger.info(f"Set session stage to ERROR.") 
-#                  except Exception as db_err: logger.error(f"CRITICAL: Failed to update session stage to ERROR: {db_err}", exc_info=True)
-#              return JsonResponse( {"ai_reply": "[SYSTEM ERROR]", "new_state": { STATE_STAGE: error_stage }, "session_id": session_id_to_return}, status=500 )
-#     else:
-#         # --- Method Not Allowed ---
-#         logger.warning(f"Unsupported method on /api/chat/: {request.method}")
-#         return JsonResponse({"error": f"Method {request.method} Not Allowed"}, status=405, headers={"Allow": "POST"})
+        # --- 4. Prepare Current State for Orchestrator ---
+        current_state_for_orchestrator = {
+            STATE_STAGE: session_model_instance.current_stage,
+            STATE_HISTORY: list(orchestrator_input_history), # Use a copy
+            STATE_FINAL_SYLLABUS: session_model_instance.final_syllabus_xml,
+            STATE_EXPLAINER_PROMPT: session_model_instance.explainer_system_prompt,
+            STATE_EXPLANATION_START_INDEX: session_model_instance.explanation_start_index,
+            STATE_CURRENT_TITLE: session_model_instance.title,
+        }
+        if not is_new_session: # Load persisted resource info for existing sessions
+            current_state_for_orchestrator.update({
+                "resource_type_for_syllabus_gen": session_model_instance.processed_resource_type,
+                "resource_content_json_for_syllabus_gen": session_model_instance.processed_resource_content_json,
+                "raw_resource_data_for_dynamic_summary": json.loads(session_model_instance.raw_data_for_dynamic_summary_json)
+                                                        if session_model_instance.raw_data_for_dynamic_summary_json else None,
+                "resource_summary_overview_for_manager": session_model_instance.initial_resource_summary_for_manager
+            })
+        # --- End 4. ---
+
+        # --- 5. Save User Message to DB & Add to In-Memory History for Orchestrator ---
+        last_message_in_db = await database_sync_to_async(
+            ChatMessage.objects.filter(session=session_model_instance).order_by('-timestamp', '-order').first
+        )()
+        current_message_order = (last_message_in_db.order + 1) if last_message_in_db else 0
+        
+        await save_message(session_model_instance, 'user', user_message_text, current_message_order)
+        current_state_for_orchestrator[STATE_HISTORY].append({'role': 'user', 'parts': [{'text': user_message_text}]})
+        history_len_before_orchestrator_adds = len(current_state_for_orchestrator[STATE_HISTORY])
+        # --- End 5. ---
+
+        # --- 6. Call the Core Orchestrator Logic ---
+        logger.info(f"Calling orchestrator for session {session_model_instance.session_id} (New: {is_new_session}) with {len(orchestrator_resource_data or {})} resources.")
+        ai_reply_text, new_state_from_orchestrator = await process_chat_message(
+            user_message_text=user_message_text,
+            current_session_state=current_state_for_orchestrator,
+            uploaded_resource_data=orchestrator_resource_data
+        )
+        # --- End 6. ---
+
+        # --- 7. Save AI/System Message(s) Added by Orchestrator to DB ---
+        returned_history_from_orchestrator = new_state_from_orchestrator.get(STATE_HISTORY, [])
+        num_new_messages_by_orchestrator = len(returned_history_from_orchestrator) - history_len_before_orchestrator_adds
+        next_message_order_start = current_message_order + 1
+
+        if num_new_messages_by_orchestrator > 0:
+            logger.debug(f"View: Orchestrator added {num_new_messages_by_orchestrator} new message(s) to history list.")
+            for i in range(num_new_messages_by_orchestrator):
+                msg_index_in_returned_hist = history_len_before_orchestrator_adds + i
+                if msg_index_in_returned_hist < len(returned_history_from_orchestrator):
+                    message_to_save_dict = returned_history_from_orchestrator[msg_index_in_returned_hist]
+                    msg_role = message_to_save_dict.get("role", "model")
+                    msg_content_parts = message_to_save_dict.get('parts', [])
+                    msg_content = ""
+                    if isinstance(msg_content_parts, list) and msg_content_parts:
+                        first_part = msg_content_parts[0]
+                        if isinstance(first_part, dict): msg_content = first_part.get('text', '')
+                        elif isinstance(first_part, str): msg_content = first_part
+                    elif isinstance(msg_content_parts, str): msg_content = msg_content_parts
+                    
+                    msg_type_from_orchestrator = message_to_save_dict.get("message_type") # Orchestrator might set this
+                    
+                    if msg_role != "user": # Don't re-save user messages
+                        await save_message(
+                            session_model_instance, msg_role, msg_content,
+                            next_message_order_start + i, message_type=msg_type_from_orchestrator
+                        )
+        elif ai_reply_text and not returned_history_from_orchestrator: # Should ideally not happen if orchestrator updates history
+             logger.warning("View: Orchestrator returned ai_reply_text but no new history. Saving reply as 'model' message.")
+             await save_message(session_model_instance, 'model', ai_reply_text, next_message_order_start)
+        # --- End 7. ---
+
+        # --- 8. Update Session Model State (Stage, Prompts, Orchestrator-set resource fields etc.) ---
+        await update_session_state(session_model_instance, new_state_from_orchestrator)
+        # --- End 8. ---
+
+        # --- 9. Finalize Resource Saving for New Sessions and Update ChatSession.resource_file_paths ---
+        saved_resource_paths_for_session: List[str] = []
+        list_of_original_filenames_for_session: List[str] = [] 
+
+        if is_new_session:
+            if temp_resources_to_finalize: # New flow with pre-processed files
+                logger.info(f"Finalizing {len(temp_resources_to_finalize)} temp resources for session {session_model_instance.session_id}")
+                for res_data in temp_resources_to_finalize:
+                    saved_path = save_extracted_text_to_server(
+                        session_model_instance.session_id,
+                        res_data["original_filename"],
+                        res_data["text_content"]
+                    )
+                    if saved_path:
+                        saved_resource_paths_for_session.append(saved_path)
+                    list_of_original_filenames_for_session.append(res_data["original_filename"]) # Capture original name
+                    try:
+                        os.remove(res_data["temp_filepath"])
+                        logger.debug(f"Deleted temp file: {res_data['temp_filepath']}")
+                    except OSError as e:
+                        logger.error(f"Error deleting temp file {res_data['temp_filepath']}: {e}", exc_info=True)
+
+            elif orchestrator_resource_data and direct_uploaded_files: # Fallback: direct multipart upload
+                logger.info(f"Saving {len(orchestrator_resource_data)} directly uploaded resources for session {session_model_instance.session_id}")
+                for original_filename_key, text_content_val in orchestrator_resource_data.items(): # Iterate through dict
+                    saved_path = save_extracted_text_to_server(
+                        session_model_instance.session_id,
+                        original_filename_key, # Use the key as original_filename
+                        text_content_val
+                    )
+                    if saved_path:
+                        saved_resource_paths_for_session.append(saved_path)
+                    list_of_original_filenames_for_session.append(original_filename_key) # Capture original name
+            
+            # Now, update the ChatSession instance if there's anything to update
+            if saved_resource_paths_for_session or list_of_original_filenames_for_session:
+                # Fetch a fresh instance to ensure we have the latest version, especially after other async ops
+                current_session_instance_to_update = await database_sync_to_async(ChatSession.objects.get)(session_id=session_model_instance.session_id)
+                
+                fields_to_save_in_db = ['updated_at'] # Always update timestamp
+
+                if saved_resource_paths_for_session:
+                    current_session_instance_to_update.resource_file_paths = saved_resource_paths_for_session
+                    fields_to_save_in_db.append('resource_file_paths')
+                
+                if list_of_original_filenames_for_session:
+                    current_session_instance_to_update.original_resource_filenames = list_of_original_filenames_for_session
+                    fields_to_save_in_db.append('original_resource_filenames')
+                
+                if len(fields_to_save_in_db) > 1: # Check if more than just 'updated_at' needs saving
+                    await database_sync_to_async(current_session_instance_to_update.save)(update_fields=list(set(fields_to_save_in_db)))
+                    logger.info(f"Updated session {current_session_instance_to_update.session_id} with resource paths and/or original filenames. Fields: {fields_to_save_in_db}")
+                # else: # If only updated_at, it might have been saved by update_session_state already, or save it explicitly if needed
+                #    await database_sync_to_async(current_session_instance_to_update.save)(update_fields=['updated_at'])
+
+        # --- 10. Save Generated Title IF Returned by Orchestrator ---
+        generated_title_text_from_state = new_state_from_orchestrator.get(STATE_GENERATED_TITLE)
+        if generated_title_text_from_state and isinstance(generated_title_text_from_state, str) and generated_title_text_from_state.strip():
+            current_session_instance_for_title = await database_sync_to_async(ChatSession.objects.get)(session_id=session_model_instance.session_id)
+            if current_session_instance_for_title.title != generated_title_text_from_state:
+                current_session_instance_for_title.title = generated_title_text_from_state
+                await database_sync_to_async(current_session_instance_for_title.save)(update_fields=['title', 'updated_at'])
+                logger.info(f"Session title updated to: '{generated_title_text_from_state}'")
+        # --- End 10. ---
+
+        # --- 11. Prepare and Send JSON Response to Frontend ---
+        response_payload = {
+            "ai_reply": ai_reply_text,
+            "new_state": { # Only send flags and stage, not full state
+                STATE_STAGE: new_state_from_orchestrator.get(STATE_STAGE, session_model_instance.current_stage),
+                STATE_DISPLAY_SYLLABUS_FLAG: new_state_from_orchestrator.get(STATE_DISPLAY_SYLLABUS_FLAG), # Can be None
+                STATE_TRANSITION_EXPLAINER_FLAG: new_state_from_orchestrator.get(STATE_TRANSITION_EXPLAINER_FLAG, False),
+            },
+            "session_id": str(session_model_instance.session_id)
+        }
+        logger.info(f"Successfully processed message for session {session_model_instance.session_id}. Returning response.")
+        return JsonResponse(response_payload, status=200)
+        # --- End 11. ---
+
+    except Exception as e:
+        error_message_for_user = "[SYSTEM ERROR: An unexpected error occurred. Please try again or start a new chat.]"
+        logger.error(f"Unexpected error in plain_django_chat_view for session {session_model_instance.session_id if session_model_instance else 'None'}: {e}", exc_info=True)
+        
+        error_stage_for_response = STAGE_ERROR
+        session_id_for_error_response = str(session_model_instance.session_id) if session_model_instance else None
+        
+        if session_model_instance:
+            try:
+                session_model_instance.current_stage = STAGE_ERROR
+                await database_sync_to_async(session_model_instance.save)(update_fields=['current_stage', 'updated_at'])
+            except Exception as db_err:
+                logger.critical(f"CRITICAL: Failed to update session stage to ERROR for {session_model_instance.session_id}: {db_err}", exc_info=True)
+        
+        return JsonResponse(
+            {"ai_reply": error_message_for_user, "new_state": {STATE_STAGE: error_stage_for_response}, "session_id": session_id_for_error_response},
+            status=500
+        )
 
 # --- List Sessions Endpoint (GET) ---
 @database_sync_to_async
@@ -405,7 +630,7 @@ def get_session_details(request: HttpRequest, session_id: uuid.UUID):
         messages = ChatMessage.objects.filter(session=session).order_by('timestamp', 'order')
         history = [ { "role": msg.role, "content": msg.content, "type": msg.message_type, "timestamp": msg.timestamp.isoformat() if msg.timestamp else None } for msg in messages ]
         logger.info(f"Fetched details for session {session_id}. History length: {len(history)}")
-        response_data = { "session_id": str(session.session_id), "title": session.title, "current_stage": session.current_stage, "final_syllabus_xml": session.final_syllabus_xml, "explainer_system_prompt": session.explainer_system_prompt, "explanation_start_index": session.explanation_start_index, "history": history, "updated_at": session.updated_at.isoformat() if session.updated_at else None, }
+        response_data = { "session_id": str(session.session_id), "title": session.title, "current_stage": session.current_stage, "final_syllabus_xml": session.final_syllabus_xml, "explainer_system_prompt": session.explainer_system_prompt, "explanation_start_index": session.explanation_start_index, "history": history, "updated_at": session.updated_at.isoformat() if session.updated_at else None,"original_resource_filenames": session.original_resource_filenames}
         return JsonResponse(response_data)
     except ChatSession.DoesNotExist:
         # Return 404 directly if session not found
@@ -414,7 +639,6 @@ def get_session_details(request: HttpRequest, session_id: uuid.UUID):
         logger.error(f"Error fetching details for session {session_id}: {e}", exc_info=True)
         return JsonResponse({"error": "Failed to fetch session details"}, status=500)
 
-# Async wrapper for get_session_details
 async def get_session_details_async(request: HttpRequest, session_id_str: str):
     if request.method != 'GET':
          return JsonResponse({'error': 'Method Not Allowed'}, status=405)
@@ -428,8 +652,7 @@ async def get_session_details_async(request: HttpRequest, session_id_str: str):
         return JsonResponse({"error": "Internal server error"}, status=500)
 
 
-# --- Delete Session Endpoint (DELETE) ---
-# (Sync part - NO @csrf_exempt here)
+
 @database_sync_to_async
 def delete_session(request: HttpRequest, session_id: uuid.UUID):
     """Handles actual DB deletion for DELETE requests."""
@@ -446,7 +669,6 @@ def delete_session(request: HttpRequest, session_id: uuid.UUID):
         logger.error(f"Error deleting session {session_id}: {e}", exc_info=True)
         return JsonResponse({'error': 'Internal server error during deletion'}, status=500)
 
-# (Async wrapper - APPLY @csrf_exempt here)
 @csrf_exempt # Apply decorator to the view function called by Django
 async def delete_session_async(request: HttpRequest, session_id_str: str):
     """Async wrapper for delete_session view, handles DELETE method."""

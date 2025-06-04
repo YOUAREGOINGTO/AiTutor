@@ -54,7 +54,12 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json # Crash reports
 /node_modules/          # Ignore top-level node_modules if any
 /frontend/node_modules/ # Explicitly ignore frontend node_modules
 
+# Optional dependency locks (usually DO commit these, listed here for completeness)
+# package-lock.json # DO commit this if you use npm
+# yarn.lock         # DO commit this if you use yarn
+# pnpm-lock.yaml    # DO commit this if you use pnpm
 
+# Build directory (Vite default is dist)
 /frontend/dist/
 /frontend/.vite/
 /frontend/.next/      # If you ever switch to Next.js
@@ -94,3 +99,6 @@ $RECYCLE.BIN/
 *~
 .#*
 
+# --- Django Specific Static Files ---
+# Ignore collected static files if you use STATIC_ROOT
+# /backend/staticfiles_collected/ # Adjust path if your STATIC_ROOT is different

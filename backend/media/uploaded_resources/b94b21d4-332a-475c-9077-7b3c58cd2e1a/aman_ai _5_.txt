@@ -1,0 +1,186 @@
+|  |  |  | 
+www .amanchadha.comDistilled • LeetCode • Asymptotic Notations
+What are Asymptotic Notations?
+(Inefficient) Alternatives
+Types of Asymptotic Notations
+Types of Functions, Limits and Simplification
+Big-O
+Example 1
+Example 2
+Big-Omega
+Small-o
+Small-omega
+Theta
+Endnotes
+Books
+Online Resources
+What are Asymptotic Notations?
+Asymptotic notations allow us to analyze an algorithm’ s running time as the input size for the algorithm
+increases. This is also known as an algorithm’ s growth rate .
+Asymptotic notations helps us answer the following questions:
+Does the algorithm suddenly become incredibly slow  when the input size grows?
+Does it mostly maintain  its quick runtime as the input size increases ?
+(Inefficient) Alternatives
+One way would be to count  the number of primitive operations at different input sizes .
+(-) Though this is a valid solution, the amount of work this takes for even simple algorithms is
+unjustifiable .
+Another way is to physically measure  the amou nt of time an algorithm takes to complete given different
+input sizes .
+(-) However , the accuracy of this meth od is bound to environmental variables such as the underlying
+hardware infrastru cture’ s processing  power , etc. In other words, the measured times would only be
+relative to the machine they were computed on.
+Types of Asymptotic Notations
+In the initial section on What are Asymptotic Notations?” , we described how an asymptotic notation
+identifies the behavior of an algorithm as the input size changes. Let us imagine an algorithm as a function  
+,  as the input size, and  being the runtime  of the algorithm. So for a given algorithm  with input
+size , you get some resultant runtime .
+This results in a graph where the Y-axis is the runtime , the X-axis is the input size, and the plot
+points  are the runtime for a given input size .
+You can label a function, or algorithm, with an asymptotic notation in many different ways – you can
+describe an algorithm by its best case, worst case, or average case. However , the most common is to
+analyze an algorithm by its worst case .
+You typically don’t evaluate using the best case  because those conditions should not be what you’re
+planning for. An excellent example of this is sorting algorithms; particu larly, adding elements to a tree
+structure . The best case for most algorithms could be as low as a single operation . However , in some
+cases, the elemen t you’re adding needs to be sorted appropriately through the tree, which could mean
+examining an entire branch . This is the worst case, and this is what we plan for .
+Types of Functions, Limits and Simplification
+Function Form  
+Logarithmic
+Linear
+Quadratic
+Polynomial
+Exponential
+These are some fundamental functio n growth classifications used in various notations. The list starts at the
+slowest growing function (logarithmic, fastest execution time) and goes on to the fastest growing
+(exponential, slowest execution time). Note that as  increases for each of those functions, the result
+increases much quicker in quadratic, polynomial, and exponential, compared to logarithmic and linear .
+It is worth noting that for the notation s about to be discussed, you should do your best to use the simplest
+terms. This means to disregard:
+Constants
+Lower order terms
+This is because as the input size (or  in our  exam ple) grows, and tends to , the lower order terms
+and constants are of little to no importance. That being said, if you have constants that are huge (read: a
+ridiculous, unimaginable amount), realize that simplifying skews your notation accuracy .
+Since we want the simplest “base” form, let’ s update our table a bit:
+Function Form  
+Logarithmic
+Linear
+Quadratic
+Polynomial
+Exponential
+Big-O
+Big-O, commonly written as O, is an asymptotic  notation for the worst case , or ceiling of growth  for a
+given function. It provides us with an asymptotic upper bound  for the growth rate of the runtime of an
+algorithm.
+Say  is your algorithm runtime, and  is an arbitrary time complexity you are trying to relate to your
+algorithm.  is , if for some real constants  and ,  for every  input
+size  .
+Big-O is the primary notation  used for general algorithm time complexity .
+The diagram below from Big-O Cheat Sheet  illustrates what a Bio-O time complexity chart looks like with a
+range of standard complexities.
+Example 1
+Is  
+Using the definition of Big-O,
+Is there some pair of constants ,  that satisfies this for all 
+Yes! The definition of Big-O has been met therefore  is .
+Example 2
+Is  
+Using the definition of Big-O,
+Is there some pair of constants ,  that satisfies this for all 
+No, there isn’t. Thus,  is NOT .
+Big-Omega
+Big-Omega, commonly written as , is an asymptotic notation for the best case , or a floor growth rate
+for a given functi on. It provid es us with an asymptotic lower bound  for the growth rate of the runtime of
+an algorithm.
+ is , if for some real constants  and  ,  is  for every input
+size  .
+Note:
+The asym ptotic growth rates provided by big-O and big-omega notation may or may not be
+asymptotically tight .
+Thus we use small-o and small-omega notation to denote bounds that are not asymptotically tight ,
+which we delve into in the below sections.
+Small-o
+Small-o, commonly written as , is an asymptotic notation to denote the upper bound  (that is not
+asymptotically tight ) on the growth rate of the runtime of an algorithm.
+ is , if for all real constants  and  ,  is <  for every input size
+ .
+The defin itions of O-notation and o-notation are similar . The main difference is that in ,
+the bound  holds for some  constant , but in , the bound  
+ holds for all constants .
+Small-omega
+Small-omega, commonly written as , is an asymptotic notation to denote the lower bound  (that is not
+asymptotically tight ) on the growth rate of the runtime of an algorithm.
+ is , if for all real constants  and ,  is  for every input
+size .
+The defin itions of -notation and -notation are similar . The main difference is that in ,
+the bound  holds for some  constant , but in , the bound  
+ holds for all constants .
+Theta
+Theta, commonly written as , is an asymptotic notation to denote the asymptotically tight bound  on the
+growth rate of the runtime of an algorithm.
+ is , if for some real constants  and  ,  is < 
+is <  for every input size .
+Therefore,  is  implies  is  as well as  is .
+Endnotes
+It’s hard to keep this kind of topic short, and you should go through the books and online resources listed. They
+go into much greater depth with definitions and examples.
+Books
+Introduction to Algorithms by CLRS
+Algorithms by Robert Sedgewick
+Algorithm Design by Michael Goodrich and Roberto T amassia
+Online Resources
+MIT: Big-O Lecture
+KhanAcademy
+Big-O Cheatsheet  - common structures, operations and algorithms, ranked by complexity .Distilled AI
+search...Back to aman.ai
+fn f(n) f
+n f(n)
+They say, “plan for the worst and hope for the best”.
+logn
+a⋅n+b
+a⋅+b⋅n+c n2
+a⋅+…+a⋅+a⋅+a⋅,where z is some constant nzn2n1n0
+,where a is some constant an
+n
+n f(n) ∞
+logn
+n
+n2
+,where z is some constant nz
+,where a is some constant an
+f(n) g(n)
+f(n)O(g(n) c(c>0) n0f(n)<=c⋅g(n)
+n(n> )n0
+f(n)=3⋅logn+100
+g(n)=logn
+f(n)O(g(n))?
+3⋅logn+100<=c⋅logn
+cn0 n> ?n0
+3⋅logn+100<=150⋅logn,n>2 (undefined at n = 1)
+f(n)O(g(n))
+f(n)=3⋅n2
+g(n)=n
+f(n)O(g(n))?
+3∗ <=c∗n n2
+cn0 n>0?
+f(n) O(g(n))
+Ω
+f(n)Ω(g(n)) c(c>0) n0(>0) n0 f(n)≥c⋅g(n)
+n(n> )n0
+o
+f(n)o(g(n)) c(c>0) n0(>0) n0 f(n) c⋅g(n)
+n(n> )n0
+f(n)=O(g(n))
+f(n)≤g(n) c>0 f(n)=o(g(n))
+f(n)<c⋅g(n) c>0
+ω
+f(n)ω(g(n)) c(c>0) (>0) n0n0 f(n)>c⋅g(n)
+n(n> )n0
+Ω ω f(n)=Ω(g(n))
+f(n)>=g(n) c>0 f(n)=ω(g(n))
+f(n)>c⋅g(n) c>0
+θ
+f(n)θ(g(n)) ,c1c2 n0(>0,>0,>0) c1 c2 n0 ⋅g(n) c1 f(n)
+⋅g(n) c2 n(n> )n0
+f(n)θ(g(n)) f(n)O(g(n)) f(n)Ω(g(n))
