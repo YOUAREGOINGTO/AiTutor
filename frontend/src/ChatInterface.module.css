@@ -1,3 +1,5 @@
+/* ChatInterface.module.css */
+
 /* --- Color Palette --- */
 :root {
   --bg-main: #f8f7fa;
@@ -17,51 +19,52 @@
   --error-text: #d9534f;
   --system-bg: #e8eaf0;
   --system-text: #5f6368;
-  --syllabus-bg: #f0f4f8; /* Lighter, less green background */
-  --syllabus-border: #d6e2f0; /* Subtle blueish border */
-  --syllabus-text: #334e68; /* Dark blue-grey text */
-  --syllabus-title: #102a43; /* Very dark blue for titles */
+
+  /* --- Primary Syllabus Theme Variables (used by both types of syllabi) --- */
+  --syllabus-bg: #f0f4f8;            /* Light blue background as per image */
+  --syllabus-border: #d6e2f0;       /* Subtle blueish border as per image */
+  --syllabus-text: #334e68;         /* Dark blue-grey text for content */
+  --syllabus-title: #102a43;        /* Very dark blue for main titles and phase-like headings */
+
   --info-bg: #fff9c4;
   --info-border: #fff59d;
   --info-text: #795548;
-  --code-block-bg: #1e1e1e; /* Example dark background */
-  --code-block-text: #d4d4d4; /* Example light text */
+  --code-block-bg: #1e1e1e;
+  --code-block-text: #d4d4d4;
   --inline-code-bg: #e0e0e5;
-  /* --- UPDATED Copy Button Colors --- */
-  --copy-button-bg: #3a3a3a; /* Slightly lighter dark grey */
-  --copy-button-bg-hover: #525252; /* Hover state for the lighter grey */
-  --copy-button-color: #b0b0b0; /* Light grey icon color - better contrast */
-  --copy-button-copied-color: #4caf50; /* Keep green for checkmark */
-  /* --- ADD THESE VIOLET ACCENT VARIABLES --- */
-  --accent-violet-dark: #1f1d2b ; /* Darker Violet */
-  --accent-violet-main:#1f1d2b ; /* Main Violet */
-  --accent-violet-light: #1f1d2b ; /* Lighter Violet (alternative for disabled) */
-  --accent-violet-focus-shadow:#1f1d2b ; /* Violet shadow */
-  --accent-violet-disabled-bg:#1f1d2b ; /* Light violet for disabled send button */
-  --send-button-icon-color: #ffffff; /* White icon for send button */
+  --copy-button-bg: #3a3a3a;
+  --copy-button-bg-hover: #525252;
+  --copy-button-color: #b0b0b0;
+  --copy-button-copied-color: #4caf50;
+  --accent-violet-dark: #1f1d2b ;
+  --accent-violet-main:#1f1d2b ;
+  --accent-violet-light: #1f1d2b ;
+  --accent-violet-focus-shadow:#1f1d2b ;
+  --accent-violet-disabled-bg:#1f1d2b ;
+  --send-button-icon-color: #ffffff;
 }
 
 /* --- Main Container --- */
 .chatContainer {
   width: 100%;
-  height: 100vh; /* Full viewport height */
+  height: 100vh;
   margin: 0;
   background-color: var(--bg-main);
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* Prevent content from breaking layout */
+  overflow: hidden;
   color: var(--text-primary);
-  font-size: 16px; /* Base font size */
+  font-size: 16px;
 }
 
 /* --- Chat History Area --- */
 .chatHistory {
-  flex-grow: 1; /* Takes up all available vertical space */
-  overflow-y: auto; /* Allows scrolling for message history */
-  padding: 20px 20px 10px 20px; /* Padding around messages */
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 20px 20px 10px 20px;
   background-color: var(--bg-chat-area);
   display: flex;
-  flex-direction: column; /* Stack messages vertically */
+  flex-direction: column;
 }
 
 .welcomeMessage {
@@ -72,54 +75,49 @@
     font-style: italic;
 }
 
-
 /* --- General Message Styling --- */
 .message {
   display: flex;
-  margin-bottom: 18px; /* Space between messages */
-  max-width: 85%; /* Limit width of messages */
-  word-wrap: break-word; /* Ensure long words break */
+  margin-bottom: 18px;
+  max-width: 85%; /* Default max-width, syllabus will override with its own */
+  word-wrap: break-word;
 }
 
 /* --- User Message Specific Styling --- */
 .userMessage {
-  align-self: flex-end; /* Align user messages to the right */
-  flex-direction: row-reverse; /* Reverse order for potential avatar */
+  align-self: flex-end;
+  flex-direction: row-reverse; /* This was in your provided CSS */
 }
-
 .userMessage .messageContent {
   background-color: var(--bg-user-message);
   color: var(--text-user-message);
-  border-radius: 12px 12px 0 12px; /* Slightly different rounding */
-  padding: 12px 18px; /* Adjusted Padding */
+  border-radius: 12px 12px 0 12px; /* From your CSS */
+  padding: 12px 18px;
 }
 
 /* --- AI Message Specific Styling --- */
 .aiMessage {
-  align-self: flex-start; /* Align AI messages to the left */
+  align-self: flex-start;
 }
-
 .aiMessage .messageContent {
   background-color: var(--bg-ai-message);
   color: var(--text-primary);
-  border-radius: 12px 12px 12px 0; /* Opposite rounding */
-  padding: 12px 18px; /* Adjusted Padding */
-  text-align: left; /* Ensure text inside aligns left */
-  overflow-wrap: break-word; /* Ensure long words break correctly */
-  word-break: break-word; /* Another property for breaking */
+  border-radius: 12px 12px 12px 0;
+  padding: 12px 18px;
+  text-align: left;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* --- System Message Styling --- */
 .systemMessage {
-    align-self: center; /* Center general system messages */
+    align-self: center;
     width: 90%;
     max-width: 600px;
     text-align: center;
     margin-top: 10px;
     margin-bottom: 15px;
 }
-
-/* Base style for system message content box */
 .systemMessage .messageContent {
     background-color: var(--system-bg);
     color: var(--system-text);
@@ -130,94 +128,197 @@
     font-size: 0.9em;
 }
 
-/* --- Syllabus Message Specific Styling --- */
+/* --- Syllabus Message Layout (OUTER DIV - applies to both non-Markdown and Markdown types) --- */
+/* This class is applied to the outermost div of ANY syllabus message for its general positioning and width */
 .syllabusMessage {
-    align-self: flex-start; /* Align left like AI messages */
-    width: 90%;
-    max-width: 700px; /* Or adjust as needed */
+    align-self: flex-start; /* Align left, as seen in the image */
+    width: 90%;             /* Takes 90% of the chat history column width */
+    max-width: 700px;       /* Max width for syllabus, matching image appearance */
     text-align: left;
     margin-top: 10px;
     margin-bottom: 15px;
 }
-/* Override content box style for syllabus */
-.syllabusMessage .messageContent {
+
+/* --- Styles for NON-MARKDOWN Syllabus CONTENT BOX (INNER DIV) --- */
+/* This class styles the `.messageContent` div when its parent has `.syllabusMessage` (for non-Markdown syllabi) */
+/* This serves as the visual template for the Markdown syllabus box as well */
+.syllabusMessage .messageContent { /* For type: 'syllabus' (non-markdown) */
     background-color: var(--syllabus-bg);
     border: 1px solid var(--syllabus-border);
     text-align: left;
     font-style: normal;
     color: var(--syllabus-text);
     font-size: 0.95em;
-    padding: 15px 20px; /* More padding */
+    padding: 15px 20px;
+    border-radius: 12px; /* Added for consistency with other bubbles and desired look */
+    line-height: 1.6;    /* Added for consistent line spacing */
 }
 
-/* --- Styles for Parsed Syllabus Content --- */
-.syllabusParsedContent h4 { /* Style for the "Syllabus Draft/Update" title */
+/* --- Styles for Parsed (NON-MARKDOWN) Syllabus Content Elements --- */
+/* These apply to specific HTML elements generated for non-Markdown syllabi, *inside* the box styled above */
+.syllabusParsedContent h4 { /* For the "Syllabus Draft/Update" title */
     margin-top: 0;
     margin-bottom: 15px;
     color: var(--syllabus-title);
     font-weight: 600;
     font-size: 1.1em;
 }
-
 .syllabusParsedContent p {
-    margin: 0 0 8px 0; /* Consistent spacing below paragraphs */
+    margin: 0 0 8px 0;
     line-height: 1.5;
 }
-
-.syllabusPhase {
+.syllabusPhase { /* For "Phase X: ..." */
     font-weight: 600;
     color: var(--syllabus-title);
-    margin-top: 12px; /* Add space above phase lines */
+    margin-top: 12px;
     margin-bottom: 10px;
     font-size: 1.05em;
-    border-bottom: 1px solid var(--syllabus-border); /* Separator line */
+    border-bottom: 1px solid var(--syllabus-border);
     padding-bottom: 5px;
 }
-/* No extra top margin for the very first phase */
 .syllabusPhase:first-child {
     margin-top: 0;
 }
-
-.syllabusTopicTitle {
-    font-weight: 500;
-    margin-left: 10px; /* Indent topic title slightly */
+.syllabusTopicTitle { /* For "Topic: ..." */
+    font-weight: 500; /* As per your CSS, image shows bold, var(--syllabus-title) */
+    margin-left: 10px; /* Your CSS had this, image doesn't clearly show indent for "Topic:" itself */
     margin-top: 10px;
-    color: var(--syllabus-title); /* Use darker title color */
+    color: var(--syllabus-title);
 }
-
-.syllabusTopicDetail {
-    margin-left: 20px; /* Indent keywords, objective, focus */
+.syllabusTopicDetail { /* For text following Keywords, Objective, Focus */
+    margin-left: 20px; /* Indentation for the content part */
     font-size: 0.95em;
-    color: #4a6580; /* Slightly lighter text for details */
+    color: #4a6580; /* As per your CSS, can be var(--syllabus-text) */
+}
+.syllabusDetailLabel { /* For "Keywords:", "Objective:", "Focus:" labels */
+    font-weight: 500; /* As per your CSS, image shows bold */
+    color: var(--syllabus-text);
+    margin-right: 5px;
 }
 
-.syllabusDetailLabel {
-    font-weight: 500; /* Make labels slightly bolder */
-    color: var(--syllabus-text); /* Use main syllabus text color */
-    margin-right: 5px; /* Space after label */
+/* --- Styles for MARKDOWN Syllabus CONTENT BOX (INNER DIV) --- */
+/* This class styles the content wrapper div for MARKDOWN syllabi (type: 'syllabus_markdown') */
+/* It mirrors the appearance of `.syllabusMessage .messageContent` */
+.syllabusMarkdownOuterContent {
+    background-color: var(--syllabus-bg);
+    border: 1px solid var(--syllabus-border);
+    color: var(--syllabus-text);
+    padding: 15px 20px;
+    border-radius: 12px;
+    text-align: left;
+    font-size: 0.95em; /* Match non-markdown syllabus overall font size */
+    line-height: 1.6;  /* Match non-markdown syllabus line height */
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
-/* --- END NEW Parsed Syllabus Styles --- */
 
+/* Styling for the main H4 title rendered *inside* .syllabusMarkdownOuterContent by ReactMarkdown component */
+/* This is for the "Syllabus Draft/Update" title */
+.syllabusMarkdownOuterContent > h4:first-child, /* If H4 is the first direct child from Markdown */
+.syllabusMarkdownOuterContent > p:first-child > strong:first-child { /* Heuristic for H4-like title in React */
+    /* This selector handles the <h4>Syllabus Draft/Update</h4> rendered directly in renderMessageContent */
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--syllabus-title);
+    font-weight: 600;
+    font-size: 1.1em; /* Matches .syllabusParsedContent h4 */
+    display: block; /* Ensure it takes full width if it's a strong tag styled as H4 */
+}
+
+
+/* --- Styles for Markdown elements rendered *inside* .syllabusMarkdownOuterContent --- */
+/* Styling H2 from Markdown (## Phase...) to match .syllabusPhase */
+.syllabusMarkdownH2 {
+  font-size: 1.05em;
+  color: var(--syllabus-title);
+  margin-top: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--syllabus-border);
+  font-weight: 600; /* Bold, like .syllabusPhase */
+}
+.syllabusMarkdownOuterContent > .syllabusMarkdownH2:first-child,
+.syllabusMarkdownOuterContent > h4 + .syllabusMarkdownH2 { /* If H2 directly follows the main H4 title */
+    margin-top: 0; /* Avoid double margin if it's the first substantive element */
+}
+
+
+/* Styling H3 from Markdown (### Topic...) to match .syllabusTopicTitle */
+.syllabusMarkdownH3 {
+  font-size: 1em; /* Slightly smaller than H2 */
+  color: var(--syllabus-title);
+  margin-top: 10px;
+  margin-bottom: 0.5em;
+  font-weight: bold; /* Ensure it's bold as seen in image for "Topic:" */
+  /* margin-left: 10px; */ /* Optional: if you want Topic titles indented like in your non-markdown example */
+}
+
+/* Styling H4 from Markdown (#### Sub-Topic...) if used */
+.syllabusMarkdownH4 {
+  font-size: 0.95em;
+  color: var(--syllabus-title); /* Can be var(--syllabus-text) for less emphasis */
+  margin-top: 8px;
+  margin-bottom: 0.4em;
+  font-weight: bold; /* Or 500 if less emphasis than H3 */
+}
+
+/* Styling for paragraphs and strong tags within Markdown syllabus */
+.syllabusMarkdownOuterContent p {
+    margin: 0 0 8px 0;
+    line-height: 1.5;
+}
+.syllabusMarkdownOuterContent p:last-child {
+    margin-bottom: 0;
+}
+.syllabusMarkdownOuterContent strong { /* For "Keywords:", "Objective:", "Focus:" */
+    font-weight: bold; /* Ensure these are bold as in image */
+    color: var(--syllabus-title); /* Using syllabus-title for darker bold, or var(--syllabus-text) if preferred */
+    margin-right: 0.3em; /* Small space after the bold label */
+}
+/* If strong is part of a line that acts as a sub-header, ensure it's not too dominant */
+.syllabusMarkdownOuterContent p > strong:only-child {
+    /* Special handling if a paragraph only contains a strong tag (might be a sub-label) */
+    /* display: block; */ /* Optional: if it should be on its own line */
+    /* margin-bottom: 4px; */
+}
+
+
+.syllabusMarkdownOuterContent ul, .syllabusMarkdownOuterContent ol {
+  padding-left: 20px;
+  margin-top: 0.5em;
+  margin-bottom: 1em;
+  list-style-position: outside;
+}
+.syllabusMarkdownOuterContent ul { list-style-type: disc; }
+.syllabusMarkdownOuterContent ol { list-style-type: decimal; }
+
+.syllabusMarkdownOuterContent li {
+  margin-bottom: 0.6em;
+  line-height: 1.5;
+}
+
+.syllabusMarkdownOuterContent hr {
+    border: none;
+    border-top: 1px solid var(--syllabus-border);
+    margin: 1.5em 0;
+}
 
 /* --- Info Message Specific Styling --- */
-.infoMessage .messageContent {
+.infoMessage .messageContent { /* This applies to the content box of info messages */
     background-color: var(--info-bg);
     border: 1px solid var(--info-border);
     color: var(--info-text);
-    font-style: normal;
+    font-style: normal; /* Ensure it's not italic if it inherits from systemMessage */
 }
-
-.infoMessageContent { /* If rendering directly inside */
+.infoMessageContent { /* If rendering React component directly inside .messageContent for info */
     font-weight: 500;
 }
 
 /* --- Message Content Base --- */
-.messageContent {
-  line-height: 1.65; /* Adjusted Line Height */
+.messageContent { /* Default for user/AI messages if not overridden by specific type */
+  line-height: 1.65;
   font-size: 0.98em;
 }
-
-/* Style user text to preserve whitespace */
 .preformattedText {
     white-space: pre-wrap;
     margin: 0;
@@ -226,20 +327,19 @@
     color: inherit;
 }
 
-/* --- Markdown Specific Styling within AI Messages --- */
+/* --- Markdown Specific Styling within AI Messages (distinct from syllabus markdown) --- */
 .aiMessage .messageContent p {
-    margin-top: 0; /* No top margin on paragraphs */
-    margin-bottom: 0.8em; /* Space below paragraphs */
-    margin-left: 0; /* IMPORTANT: No left margin */
-    margin-right: 0; /* IMPORTANT: No right margin */
-    text-align: left; /* Ensure paragraphs are left-aligned */
+    margin-top: 0;
+    margin-bottom: 0.8em;
+    margin-left: 0;
+    margin-right: 0;
+    text-align: left;
 }
 .aiMessage .messageContent p:last-child {
-   margin-bottom: 0; /* No space after the last paragraph */
+   margin-bottom: 0;
 }
 .aiMessage .messageContent strong, .aiMessage .messageContent b { font-weight: 600; }
 .aiMessage .messageContent em, .aiMessage .messageContent i { font-style: italic; }
-/* Adjusted List Spacing */
 .aiMessage .messageContent ul, .aiMessage .messageContent ol {
   margin-top: 0.5em; margin-bottom: 0.8em; padding-left: 25px; margin-left: 5px;
 }
@@ -247,105 +347,83 @@
 .aiMessage .messageContent ul ol, .aiMessage .messageContent ol ul {
   margin-top: 0.3em; margin-bottom: 0.3em;
 }
-.aiMessage .messageContent li { margin-bottom: 0.6em; list-style-position: outside; } /* More space between items */
+.aiMessage .messageContent li { margin-bottom: 0.6em; list-style-position: outside; }
 .aiMessage .messageContent ol { list-style-type: decimal; }
 .aiMessage .messageContent ul { list-style-type: disc; }
-/* End List Spacing */
-.aiMessage .messageContent hr { border: none; border-top: 1px solid #ccc; margin: 1.2em 0; } /* More space around HR */
+.aiMessage .messageContent hr { border: none; border-top: 1px solid #ccc; margin: 1.2em 0; }
 
-/* --- Code Styling --- */
-
-/* Style for inline code (`code`) */
+/* --- Code Styling (applies globally or within AI/Markdown messages) --- */
 .inlineCode {
   background-color: var(--inline-code-bg);
   padding: 0.2em 0.4em;
-  margin: 0 0.1em; /* Add slight horizontal margin */
+  margin: 0 0.1em;
   border-radius: 4px;
-  font-size: 0.9em; /* Slightly smaller */
+  font-size: 0.9em;
   font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
-  color: var(--text-primary); /* Use primary text color */
-  vertical-align: baseline; /* Align better with surrounding text */
+  color: var(--text-primary);
+  vertical-align: baseline;
 }
-
-/* Wrapper for code blocks to position the copy button */
 .codeBlockWrapper {
-    position: relative; /* Allows absolute positioning of children */
-    margin: 1em 0; /* Keep vertical spacing */
+    position: relative;
+    margin: 1em 0;
 }
-
-/* Style for the highlighted code block container (from SyntaxHighlighter) */
 .codeBlock {
-   /* The SyntaxHighlighter component adds its own padding/margins */
-   /* We might only need to ensure font size and radius if the theme doesn't match */
    font-size: 0.9em !important;
    border-radius: 6px !important;
    overflow: hidden !important;
-   /* Remove margin here, let the wrapper handle it */
    margin: 0 !important;
 }
-
-/* Style for plain code blocks (no language) */
 .codeBlockPlain {
-    /* Remove margin here, let the wrapper handle it */
     margin: 0;
     padding: 14px;
-    background-color: var(--code-block-bg); /* Use dark theme background */
-    color: var(--code-block-text); /* Use light text */
-    border: 1px solid #444; /* Add subtle border */
+    background-color: var(--code-block-bg);
+    color: var(--code-block-text);
+    border: 1px solid #444;
     border-radius: 6px;
-    overflow-x: auto; /* Allow horizontal scrolling */
+    overflow-x: auto;
     font-size: 0.9em;
     line-height: 1.45;
     font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
-    white-space: pre; /* Preserve whitespace */
+    white-space: pre;
 }
-/* Reset inner code style within the plain block */
 .codeBlockPlain code {
      padding: 0;
      background-color: transparent;
      color: inherit;
      font-family: inherit;
      font-size: inherit;
-     white-space: inherit; /* Inherit pre's whitespace handling */
+     white-space: inherit;
 }
-
-/* Copy Button Styling */
 .copyButton {
     position: absolute;
-    top: 8px; /* Adjust as needed */
-    right: 8px; /* Adjust as needed */
-    background-color: var(--copy-button-bg); /* Uses updated variable */
-    color: var(--copy-button-color);       /* Uses updated variable */
+    top: 8px;
+    right: 8px;
+    background-color: var(--copy-button-bg);
+    color: var(--copy-button-color);
     border: none;
-    padding: 4px 8px; /* Smaller padding */
+    padding: 4px 8px;
     border-radius: 4px;
     cursor: pointer;
     font-size: 0.8em;
-    opacity: 0.7; /* Make it slightly transparent initially */
+    opacity: 0.7;
     transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
-    z-index: 1; /* Ensure it's above the code */
-    display: flex; /* Align icon inside */
+    z-index: 1;
+    display: flex;
     align-items: center;
     justify-content: center;
 }
-
 .codeBlockWrapper:hover .copyButton,
 .copyButton:focus {
-    opacity: 1; /* Fully visible on hover/focus */
+    opacity: 1;
 }
-
 .copyButton:hover {
-    background-color: var(--copy-button-bg-hover); /* Uses updated variable */
+    background-color: var(--copy-button-bg-hover);
 }
-
 .copyButton.copied {
-    /* Style for when copied */
-    background-color: var(--copy-button-bg); /* Keep background or change slightly */
-    color: var(--copy-button-copied-color); /* Change icon color to green */
-    opacity: 1; /* Keep it visible */
+    background-color: var(--copy-button-bg);
+    color: var(--copy-button-copied-color);
+    opacity: 1;
 }
-/* --- END Code Styling --- */
-
 
 /* --- Loading indicator, Error Display, Input Area, Textarea, Buttons --- */
 .loadingIndicator { color: var(--text-secondary); font-style: italic; padding: 5px 0; text-align: center; }
@@ -353,7 +431,7 @@
 .inputArea { display: flex; align-items: flex-end; padding: 15px 20px; border-top: 1px solid var(--border-color); background-color: var(--bg-input-area); flex-shrink: 0; gap: 10px; }
 .inputField { flex-grow: 1; padding: 10px 15px; border: 1px solid var(--border-color); background-color: var(--input-bg); border-radius: 8px; font-size: 1em; line-height: 1.5; resize: none; color: var(--text-primary); font-family: inherit; min-height: 44px; max-height: 150px; overflow-y: auto; outline: none; transition: box-shadow 0.2s ease, border-color 0.2s ease; }
 .inputField::placeholder { color: var(--text-secondary); }
-.inputField:focus { border-color: var(--accent-violet-main); box-shadow: 0 0 0 1px var(--accent-violet-focus-shadow), }
+.inputField:focus { border-color: var(--accent-violet-main); box-shadow: 0 0 0 1px var(--accent-violet-focus-shadow), } /* Comma was here */
 .inputField:disabled { background-color: #e9ecef; cursor: not-allowed; }
 .iconButton { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--border-color); background-color: transparent; color: var(--text-secondary); cursor: pointer; flex-shrink: 0; font-size: 0.8em; font-weight: bold; padding: 0; transition: background-color 0.2s ease; }
 .iconButton:hover:not(:disabled) { background-color: #f0f0f5; }
@@ -361,3 +439,114 @@
 .sendButton { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: none; background-color: var(--accent-violet-main); color:var(--send-button-icon-color); border-radius: 8px; cursor: pointer; transition: background-color 0.2s ease; flex-shrink: 0; }
 .sendButton:hover:not(:disabled) { background-color: var(--accent-violet-dark); }
 .sendButton:disabled { background-color: var(--accent-violet-disabled-bg); cursor: not-allowed; }
+
+/* --- Attachment related styles from your provided CSS (ensure they are correct) --- */
+/* --- Selected Files Container (Above Input Area) --- */
+/* This was missing from your provided full CSS, re-adding from previous context */
+.selectedFilesContainer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 20px;
+  margin: 0 0 10px 0;
+  background-color: var(--selected-files-container-bg, #f9f9fb); /* Added fallback */
+  border: 1px dashed var(--selected-files-container-border, #d1d5db); /* Added fallback */
+  border-radius: 8px;
+  max-height: 120px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+/* --- Attach File Button (Paperclip icon) --- */
+/* This was missing from your provided full CSS, re-adding from previous context */
+.attachButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  background-color: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  flex-shrink: 0;
+}
+.attachButton:hover:not(:disabled) {
+  background-color: var(--input-bg);
+  border-color: var(--accent-violet-light);
+  color: var(--accent-violet-main);
+}
+.attachButton:focus-visible {
+  outline: none;
+  border-color: var(--accent-violet-main);
+  box-shadow: 0 0 0 2px var(--accent-violet-focus-shadow);
+}
+.attachButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- In-Message File Attachments (within User Message Bubble) --- */
+/* These styles were also missing from the full CSS provided in the last prompt, re-adding for completeness */
+.messageAttachmentsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.attachmentBlockWrapper { /* Wrapper for the file block in user messages */
+  margin-bottom: 4px; /* Space between file block and text bubble below */
+}
+.attachmentBlockWrapper .messageAttachmentsContainer { /* The actual visual box for files */
+  background-color: var(--in-message-file-block-bg, #f7f7f8); /* Fallback */
+  color: var(--in-message-file-block-text-color, #374151); /* Fallback */
+  border: 1px solid var(--in-message-file-block-border, #e5e7eb); /* Fallback */
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: var(--in-message-file-block-shadow, 0 1px 2px 0 rgba(0, 0, 0, 0.05)); /* Fallback */
+}
+.messageAttachmentChip {
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  color: inherit; /* Inherits from .attachmentBlockWrapper .messageAttachmentsContainer */
+}
+.attachmentIcon {
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+.attachmentBlockWrapper .attachmentIcon { /* Icon color within the user message file block */
+  color: var(--in-message-file-block-icon-color, #6b7280); /* Fallback */
+}
+.attachmentIconSvg {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.15em;
+}
+.attachmentName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.attachmentBlockWrapper + .userMessage .messageContent { /* If text bubble follows file block */
+    margin-top: 0; /* Remove extra margin from general .message rule */
+}
+.userMessage .messageContent > .preformattedText:only-child { /* If only text in user bubble */
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.emptyContentPlaceholder { /* If user message has files but no text */
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.6); /* Light placeholder text for dark user bubble */
+    font-size: 0.9em;
+    padding: 10px 0 0 0; /* Add some padding if it's the only thing */
+}
+/* Ensure preformatted text within user message bubble is transparent */
+.userMessage .messageContent .preformattedText {
+    background-color: transparent;
+    padding: 0;
+    margin: 0;
+    color: inherit; /* Inherits white text from .userMessage .messageContent */
+}

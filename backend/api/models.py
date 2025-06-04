@@ -2,14 +2,12 @@
 from django.db import models
 import uuid# api/models.py
 from django.db import models
-from django.conf import settings # To link to the User model (if needed later)
-import uuid                   # To generate unique IDs
-from typing import Dict, Any, List # For type hinting (Ensure this import is present)
+from django.conf import settings 
+import uuid                   
+from typing import Dict, Any, List 
 
 class ChatSession(models.Model):
     """Represents a single chat conversation thread."""
-    # If you implement user authentication later, you can uncomment and use this:
-    # user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
 
     session_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -18,8 +16,7 @@ class ChatSession(models.Model):
     # Store the last known state relevant for resuming (if session persistence is enabled)
     # Values should correspond to STAGE constants in orchestrator.py
     current_stage = models.CharField(max_length=50, default="START")
-    # Store the finalized syllabus XML (including tags)
-    final_syllabus_xml = models.TextField(null=True, blank=True)
+    final_syllabus_xml = models.TextField(null=True, blank=True) #Now its Markdown
     # Store the generated system prompt for the explainer persona
     explainer_system_prompt = models.TextField(null=True, blank=True)
     explanation_start_index = models.PositiveIntegerField(
@@ -27,15 +24,46 @@ class ChatSession(models.Model):
         blank=True,
         help_text="Index in ChatMessage history where the EXPLAINING stage began (0-based)."
     )
+    resource_file_paths = models.JSONField(
+        null=True,
+        blank=True,
+        default=list, # Stores a list of relative paths to processed .txt files
+        help_text="List of server paths to processed text files from uploaded resources."
+    )
+    processed_resource_type = models.CharField(
+        max_length=20, null=True, blank=True, # "NONE", "RAW_TEXT", "SUMMARIES"
+        help_text="Type of resource processing determined for syllabus generation."
+    )
 
-    # Optional: For easier identification in admin or lists
+    processed_resource_content_json = models.TextField(
+        null=True, blank=True,
+        help_text="JSON string of raw text snippets (for RAW_TEXT type) or initial summaries."
+    )
+    
+    raw_data_for_dynamic_summary_json = models.TextField(
+        null=True, blank=True,
+        help_text="JSON string of the full uploaded resource data if type is SUMMARIES."
+    )
+    initial_resource_summary_for_manager = models.TextField(
+         null=True, blank=True,
+         help_text="The initial summary text provided to the conversation manager."
+    )
+    original_resource_filenames = models.JSONField( # <-- NEW FIELD
+        null=True, blank=True, default=list,
+        help_text="List of original filenames of resources uploaded with the first message."
+    )
+
+
+
+
+    
     title = models.CharField(max_length=200, blank=True, default="New Chat")
 
     class Meta:
-        ordering = ['-created_at'] # Show newest sessions first in queries/admin
+        ordering = ['-created_at'] 
 
     def __str__(self):
-         # Simple representation without user for now
+         
          return f"Chat Session {self.session_id} - Stage: {self.current_stage}"
 
 
@@ -43,7 +71,7 @@ class ChatMessage(models.Model):
     """Represents a single message within a ChatSession."""
     # Define choices for the 'role' field
     ROLE_CHOICES = [
-        ('user', 'User'),           # Message from the human user
+        ('user', 'User'),           
         ('model', 'AI Model'),      # Message from the LLM (manager, generator, explainer)
         ('system', 'System'),       # Message from application logic (optional, used with message_type)
     ]
@@ -52,13 +80,20 @@ class ChatMessage(models.Model):
         ('message', 'Standard Message'), # Default type for user/model, or generic system msg
         ('syllabus', 'Syllabus Display'), # System msg indicating syllabus should be shown
         ('info', 'Informational'),      # System msg for info banners (like transitions)
-        # Add other specific system message types if needed later
+        
+    ]
+    MESSAGE_TYPE_CHOICES = [
+        ('message', 'Standard Message'),
+        ('syllabus', 'Syllabus Display'),
+        ('info', 'Informational'),
+        ('internal', 'Internal Command'), # Existing internal type
+        ('internal_resource_summary', 'Internal Resource Summary'), # <-- ADD THIS LINE
     ]
 
+
     message_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # Link back to the parent session. Deleting session deletes messages.
     session = models.ForeignKey(ChatSession, related_name='messages', on_delete=models.CASCADE)
-    # Store the role (who sent it) using choices for validation/admin UI
+    
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     # The actual text content of the message
     content = models.TextField()
@@ -68,7 +103,7 @@ class ChatMessage(models.Model):
     order = models.PositiveIntegerField(default=0)
     # Optional field to further classify system messages for UI rendering
     message_type = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=MESSAGE_TYPE_CHOICES,
         default='message', # Sensible default
         null=True, blank=True # Allow null/blank as it's less critical for user/model roles

@@ -1,0 +1,1717 @@
+!pip install -q google-generativeai
+    import google.generativeai as genai
+    import json
+    import os
+    import re
+    import time
+    from datetime import datetime, timedelta
+    from concurrent.futures import ThreadPoolExecutor
+    from google.colab import userdata
+
+
+    import dspy
+    import litellm
+    from typing import Optional, List, Dict, Any, Union,Tuple,Callable
+    class CustomGeminiDspyLM(dspy.LM):
+        def __init__(
+            self,
+            model: str,
+            api_key: str,
+            rate_limiter_instance: Any,
+            safety_settings: Optional[List[Dict[str, str]]] = None,
+            **kwargs,
+        ):
+
+            super().__init__(model)
+
+            # Store our custom parameters
+            self.model = model # The full LiteLLM model string
+            self.api_key = api_key
+            self.rate_limiter = rate_limiter_instance
+            self.safety_settings = safety_settings
+
+
+            self.kwargs = kwargs
+
+
+            self.provider = "custom_gemini_litellm"
+
+
+            try:
+                _ = litellm.model_cost # Access an attribute to check if litellm is basically working
+                print(f"CustomGeminiDspyLM initialized for model: {self.model} via LiteLLM.")
+            except Exception as e:
+                print(f"Error during LiteLLM check in CustomGeminiDspyLM init: {e}")
+                # Depending on severity, you might raise an error here:
+                # raise RuntimeError("LiteLLM does not seem to be properly installed or available.")
+
+
+
+        def _prepare_litellm_messages_from_dspy_inputs(
+            self, dspy_input: Union[str, List[Dict[str, str]]]
+        ) -> List[Dict[str, str]]:
+            """
+            Converts DSPy style input (string or list of messages)
+            to LiteLLM's expected messages format.
+            """
+            if isinstance(dspy_input, str):
+                # Simple case: a single user prompt
+                return [{"role": "user", "content": dspy_input}]
+            elif isinstance(dspy_input, list):
+                #
+                return dspy_input
+            else:
+                raise TypeError(
+                    f"Unsupported dspy_input type for message preparation: {type(dspy_input)}"
+                )
+    # (Keep your __init__ and _prepare_litellm_messages_from_dspy_inputs methods as they were)
+
+        def __call__(
+            self,
+            prompt: Optional[str] = None,
+            messages: Optional[List[Dict[str, str]]] = None,
+            **kwargs,
+        ) -> List[str]:
+            if not prompt and not messages:
+                raise ValueError("Either 'prompt' or 'messages' must be provided.")
+            if prompt and messages:
+                raise ValueError("Provide either 'prompt' or 'messages', not both.")
+            if messages is not None:
+              dspy_input_content = messages
+            elif prompt is not None:
+                dspy_input_content = prompt
+            else:
+                raise ValueError("Either 'prompt' or 'messages' must be provided.")
+
+            self.rate_limiter.wait_if_needed()
+
+            dspy_input_content = prompt if prompt is not None else messages
+            try:
+                messages_for_litellm = self._prepare_litellm_messages_from_dspy_inputs(dspy_input_content)
+            except TypeError as e:
+                print(f"Error preparing messages: {e}")
+                return [f"[ERROR: Message preparation error - {e}]"]
+
+            final_call_kwargs = self.kwargs.copy()
+            final_call_kwargs.update(kwargs)
+
+            current_safety_settings = self.safety_settings
+            if 'safety_settings' in final_call_kwargs:
+                current_safety_settings = final_call_kwargs.pop('safety_settings')
+
+            extra_body = {}
+            if current_safety_settings:
+                extra_body['safety_settings'] = current_safety_settings
+
+            try:
+                print(f"[CustomGeminiDspyLM] Calling LiteLLM. Model: {self.model}")
+                print(f"Messages for LiteLLM: {messages_for_litellm}")
+                print(f"Final kwargs for LiteLLM: {final_call_kwargs}")
+                if extra_body:
+                    print(f"Extra body for LiteLLM: {extra_body}")
+
+                response_obj = litellm.completion(
+                    model=self.model,
+                    messages=messages_for_litellm,
+                    api_key=self.api_key,
+                    extra_body=extra_body if extra_body else None,
+                    **final_call_kwargs,
+                )
+
+                # --- MODIFIED/ADDED SECTION FOR ROBUSTNESS ---
+                print(f"[CustomGeminiDspyLM] Raw LiteLLM response object choices: {response_obj.choices}")
+
+                completions = []
+                if response_obj.choices:
+                    for choice in response_obj.choices:
+                        if choice.message and choice.message.content is not None:
+                            completions.append(choice.message.content)
+                        else:
+                            # Content is None, log this and potentially add a placeholder or error string
+                            finish_reason = choice.finish_reason if hasattr(choice, 'finish_reason') else "N/A"
+                            print(f"[CustomGeminiDspyLM] Warning: Received a choice with None content. Finish reason: {finish_reason}")
+                            completions.append(f"[WARN: Content filtered or empty. Finish Reason: {finish_reason}]")
+                else:
+                    print("[CustomGeminiDspyLM] Warning: LiteLLM response object had no choices.")
+                    completions.append("[WARN: No choices in response]")
+                # --- END OF MODIFIED/ADDED SECTION ---
+
+
+                if completions and completions[0] is not None and not completions[0].startswith("[WARN:"): # Check if first completion is valid
+                    print(f"[CustomGeminiDspyLM] Response from LiteLLM (first choice snippet): {str(completions[0])[:100]}...")
+                elif completions: # There are completions, but the first might be a warning
+                     print(f"[CustomGeminiDspyLM] First completion (or warning): {completions[0]}")
+                else: # No completions at all
+                    print("[CustomGeminiDspyLM] No valid completions found.")
+
+
+                return completions
+
+            except litellm.RateLimitError as rle:
+                print(f"[CustomGeminiDspyLM] LiteLLM RateLimitError: {rle}.")
+                return [f"[ERROR: LiteLLM RateLimitError - {rle}]"]
+            except Exception as e:
+                import traceback
+                print(f"[CustomGeminiDspyLM] Error during LiteLLM completion: {type(e).__name__} - {e}")
+                traceback.print_exc()
+                return [f"[ERROR: {type(e).__name__} - {e}]"]
+
+
+
+    class RateLimiter:
+        def __init__(self, max_calls=7, time_period=60):
+            self.max_calls = max_calls
+            self.time_period = time_period
+            self.call_timestamps = []
+            self.total_calls_made_through_limiter = 0
+            print(f"Rate Limiter Initialized: Max {self.max_calls} calls per {self.time_period} seconds.")
+
+        def wait_if_needed(self) -> int:
+            if not API_KEY:
+                 raise ValueError("Cannot make API calls: API Key not configured.")
+            current_time = datetime.now()
+            self.call_timestamps = [ts for ts in self.call_timestamps
+                                   if current_time - ts < timedelta(seconds=self.time_period)]
+            if len(self.call_timestamps) >= self.max_calls:
+                oldest_call_in_window = min(self.call_timestamps)
+                wait_time = (oldest_call_in_window + timedelta(seconds=self.time_period) - current_time).total_seconds()
+                if wait_time > 0:
+                    print(f"\n[Rate Limiter]: Limit reached. Waiting {wait_time:.1f} seconds...")
+                    time.sleep(wait_time + 0.5)
+                current_time = datetime.now()
+                self.call_timestamps = [ts for ts in self.call_timestamps
+                                       if current_time - ts < timedelta(seconds=self.time_period)]
+            self.call_timestamps.append(datetime.now())
+            self.total_calls_made_through_limiter += 1
+            return self.total_calls_made_through_limiter
+
+    limiter = RateLimiter()
+    print("Global RateLimiter instance created.")
+
+    Rate Limiter Initialized: Max 7 calls per 60 seconds.
+    Global RateLimiter instance created.
+
+    try:
+        API_KEY = userdata.get('GOOGLE_API_KEY')
+        genai.configure(api_key=API_KEY)
+        print("Google Generative AI Configured Successfully.")
+    except userdata.SecretNotFoundError:
+        print("ERROR: Secret 'GEMINI_API_KEY' not found.")
+        print("Please add your Gemini API Key to Colab Secrets.")
+        # Optionally, raise an error or exit if the key is critical
+        API_KEY = None # Set API_KEY to None to indicate failure
+    except Exception as e:
+        print(f"An error occurred during genai configuration: {e}")
+        API_KEY = None
+
+    DEFAULT_MODEL_NAME= "gemini-2.5-flash-preview-04-17"
+
+
+    DEFAULT_SAFETY_SETTINGS = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    ]
+    if API_KEY and 'limiter' in globals():
+        try:
+          DEFAULT_GEMINI_VARIANT = "gemini-2.5-flash-preview-04-17"
+          LITELLM_MODEL_STRING = f"gemini/{DEFAULT_GEMINI_VARIANT}"
+          corrected_custom_lm = CustomGeminiDspyLM(
+              model=LITELLM_MODEL_STRING,
+              api_key=API_KEY,
+              rate_limiter_instance=limiter,
+              safety_settings=LITELLM_MODEL_STRING if 'DEFAULT_SAFETY_SETTINGS' in globals() else None,
+              temperature=1,
+          )
+          dspy.settings.configure(lm=corrected_custom_lm) # << THE IMPORTANT LINE
+          print(f"DEBUG: DSPy configured globally with Corrected CustomGeminiDspyLM: {LITELLM_MODEL_STRING}")
+          if dspy.settings.lm is None:
+                print("DEBUG ERROR: dspy.settings.lm is STILL NONE after corrected configuration!")
+          else:
+                print(f"DEBUG VERIFIED: dspy.settings.lm is configured to: {dspy.settings.lm.model}")
+                print(f"DEBUG LM type: {type(dspy.settings.lm)}") # Add this line
+        except Exception as e:
+            print(f"DEBUG Error RE-CONFIGURING DSPy: {e}")
+
+    Google Generative AI Configured Successfully.
+    CustomGeminiDspyLM initialized for model: gemini/gemini-2.5-flash-preview-04-17 via LiteLLM.
+    DEBUG: DSPy configured globally with Corrected CustomGeminiDspyLM: gemini/gemini-2.5-flash-preview-04-17
+    DEBUG VERIFIED: dspy.settings.lm is configured to: gemini/gemini-2.5-flash-preview-04-17
+    DEBUG LM type: <class '__main__.CustomGeminiDspyLM'>
+
+Processing Resources
+
+    from google.colab import drive
+    drive.mount('/content/drive')
+    !pip install PyPDF2
+    !pip install dspy
+    !pip install python-docx
+    import PyPDF2
+    import docx
+    import csv
+    import os
+    import io
+    import sys
+    import time #Import the time module
+
+    Drive already mounted at /content/drive; to attempt to forcibly remount, call drive.mount("/content/drive", force_remount=True).
+    Requirement already satisfied: PyPDF2 in /usr/local/lib/python3.11/dist-packages (3.0.1)
+    Requirement already satisfied: dspy in /usr/local/lib/python3.11/dist-packages (2.6.24)
+    Requirement already satisfied: backoff>=2.2 in /usr/local/lib/python3.11/dist-packages (from dspy) (2.2.1)
+    Requirement already satisfied: joblib~=1.3 in /usr/local/lib/python3.11/dist-packages (from dspy) (1.5.0)
+    Requirement already satisfied: openai>=0.28.1 in /usr/local/lib/python3.11/dist-packages (from dspy) (1.78.1)
+    Requirement already satisfied: pandas>=2.1.1 in /usr/local/lib/python3.11/dist-packages (from dspy) (2.2.2)
+    Requirement already satisfied: regex>=2023.10.3 in /usr/local/lib/python3.11/dist-packages (from dspy) (2024.11.6)
+    Requirement already satisfied: ujson>=5.8.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (5.10.0)
+    Requirement already satisfied: tqdm>=4.66.1 in /usr/local/lib/python3.11/dist-packages (from dspy) (4.67.1)
+    Requirement already satisfied: datasets>=2.14.6 in /usr/local/lib/python3.11/dist-packages (from dspy) (3.6.0)
+    Requirement already satisfied: requests>=2.31.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (2.32.3)
+    Requirement already satisfied: optuna>=3.4.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (4.3.0)
+    Requirement already satisfied: pydantic>=2.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (2.11.4)
+    Requirement already satisfied: magicattr>=0.1.6 in /usr/local/lib/python3.11/dist-packages (from dspy) (0.1.6)
+    Requirement already satisfied: litellm>=1.60.3 in /usr/local/lib/python3.11/dist-packages (from dspy) (1.71.1)
+    Requirement already satisfied: diskcache>=5.6.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (5.6.3)
+    Requirement already satisfied: json-repair>=0.30.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (0.46.0)
+    Requirement already satisfied: tenacity>=8.2.3 in /usr/local/lib/python3.11/dist-packages (from dspy) (9.1.2)
+    Requirement already satisfied: anyio in /usr/local/lib/python3.11/dist-packages (from dspy) (4.9.0)
+    Requirement already satisfied: asyncer==0.0.8 in /usr/local/lib/python3.11/dist-packages (from dspy) (0.0.8)
+    Requirement already satisfied: cachetools>=5.5.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (5.5.2)
+    Requirement already satisfied: cloudpickle>=3.0.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (3.1.1)
+    Requirement already satisfied: rich>=13.7.1 in /usr/local/lib/python3.11/dist-packages (from dspy) (13.9.4)
+    Requirement already satisfied: numpy>=1.26.0 in /usr/local/lib/python3.11/dist-packages (from dspy) (2.0.2)
+    Requirement already satisfied: idna>=2.8 in /usr/local/lib/python3.11/dist-packages (from anyio->dspy) (3.10)
+    Requirement already satisfied: sniffio>=1.1 in /usr/local/lib/python3.11/dist-packages (from anyio->dspy) (1.3.1)
+    Requirement already satisfied: typing_extensions>=4.5 in /usr/local/lib/python3.11/dist-packages (from anyio->dspy) (4.13.2)
+    Requirement already satisfied: filelock in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (3.18.0)
+    Requirement already satisfied: pyarrow>=15.0.0 in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (18.1.0)
+    Requirement already satisfied: dill<0.3.9,>=0.3.0 in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (0.3.7)
+    Requirement already satisfied: xxhash in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (3.5.0)
+    Requirement already satisfied: multiprocess<0.70.17 in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (0.70.15)
+    Requirement already satisfied: fsspec<=2025.3.0,>=2023.1.0 in /usr/local/lib/python3.11/dist-packages (from fsspec[http]<=2025.3.0,>=2023.1.0->datasets>=2.14.6->dspy) (2025.3.0)
+    Requirement already satisfied: huggingface-hub>=0.24.0 in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (0.31.2)
+    Requirement already satisfied: packaging in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (24.2)
+    Requirement already satisfied: pyyaml>=5.1 in /usr/local/lib/python3.11/dist-packages (from datasets>=2.14.6->dspy) (6.0.2)
+    Requirement already satisfied: aiohttp in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (3.11.15)
+    Requirement already satisfied: click in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (8.2.0)
+    Requirement already satisfied: httpx>=0.23.0 in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (0.28.1)
+    Requirement already satisfied: httpx-aiohttp>=0.1.4 in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (0.1.4)
+    Requirement already satisfied: importlib-metadata>=6.8.0 in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (8.7.0)
+    Requirement already satisfied: jinja2<4.0.0,>=3.1.2 in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (3.1.6)
+    Requirement already satisfied: jsonschema<5.0.0,>=4.22.0 in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (4.23.0)
+    Requirement already satisfied: python-dotenv>=0.2.0 in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (1.1.0)
+    Requirement already satisfied: tiktoken>=0.7.0 in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (0.9.0)
+    Requirement already satisfied: tokenizers in /usr/local/lib/python3.11/dist-packages (from litellm>=1.60.3->dspy) (0.21.1)
+    Requirement already satisfied: distro<2,>=1.7.0 in /usr/local/lib/python3.11/dist-packages (from openai>=0.28.1->dspy) (1.9.0)
+    Requirement already satisfied: jiter<1,>=0.4.0 in /usr/local/lib/python3.11/dist-packages (from openai>=0.28.1->dspy) (0.9.0)
+    Requirement already satisfied: alembic>=1.5.0 in /usr/local/lib/python3.11/dist-packages (from optuna>=3.4.0->dspy) (1.16.1)
+    Requirement already satisfied: colorlog in /usr/local/lib/python3.11/dist-packages (from optuna>=3.4.0->dspy) (6.9.0)
+    Requirement already satisfied: sqlalchemy>=1.4.2 in /usr/local/lib/python3.11/dist-packages (from optuna>=3.4.0->dspy) (2.0.40)
+    Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.11/dist-packages (from pandas>=2.1.1->dspy) (2.9.0.post0)
+    Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.11/dist-packages (from pandas>=2.1.1->dspy) (2025.2)
+    Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.11/dist-packages (from pandas>=2.1.1->dspy) (2025.2)
+    Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.11/dist-packages (from pydantic>=2.0->dspy) (0.7.0)
+    Requirement already satisfied: pydantic-core==2.33.2 in /usr/local/lib/python3.11/dist-packages (from pydantic>=2.0->dspy) (2.33.2)
+    Requirement already satisfied: typing-inspection>=0.4.0 in /usr/local/lib/python3.11/dist-packages (from pydantic>=2.0->dspy) (0.4.0)
+    Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/dist-packages (from requests>=2.31.0->dspy) (3.4.2)
+    Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.11/dist-packages (from requests>=2.31.0->dspy) (2.4.0)
+    Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.11/dist-packages (from requests>=2.31.0->dspy) (2025.4.26)
+    Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.11/dist-packages (from rich>=13.7.1->dspy) (3.0.0)
+    Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.11/dist-packages (from rich>=13.7.1->dspy) (2.19.1)
+    Requirement already satisfied: Mako in /usr/lib/python3/dist-packages (from alembic>=1.5.0->optuna>=3.4.0->dspy) (1.1.3)
+    Requirement already satisfied: aiohappyeyeballs>=2.3.0 in /usr/local/lib/python3.11/dist-packages (from aiohttp->litellm>=1.60.3->dspy) (2.6.1)
+    Requirement already satisfied: aiosignal>=1.1.2 in /usr/local/lib/python3.11/dist-packages (from aiohttp->litellm>=1.60.3->dspy) (1.3.2)
+    Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.11/dist-packages (from aiohttp->litellm>=1.60.3->dspy) (25.3.0)
+    Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.11/dist-packages (from aiohttp->litellm>=1.60.3->dspy) (1.6.0)
+    Requirement already satisfied: multidict<7.0,>=4.5 in /usr/local/lib/python3.11/dist-packages (from aiohttp->litellm>=1.60.3->dspy) (6.4.3)
+    Requirement already satisfied: propcache>=0.2.0 in /usr/local/lib/python3.11/dist-packages (from aiohttp->litellm>=1.60.3->dspy) (0.3.1)
+    Requirement already satisfied: yarl<2.0,>=1.17.0 in /usr/local/lib/python3.11/dist-packages (from aiohttp->litellm>=1.60.3->dspy) (1.20.0)
+    Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.11/dist-packages (from httpx>=0.23.0->litellm>=1.60.3->dspy) (1.0.9)
+    Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.11/dist-packages (from httpcore==1.*->httpx>=0.23.0->litellm>=1.60.3->dspy) (0.16.0)
+    Requirement already satisfied: zipp>=3.20 in /usr/local/lib/python3.11/dist-packages (from importlib-metadata>=6.8.0->litellm>=1.60.3->dspy) (3.21.0)
+    Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.11/dist-packages (from jinja2<4.0.0,>=3.1.2->litellm>=1.60.3->dspy) (3.0.2)
+    Requirement already satisfied: jsonschema-specifications>=2023.03.6 in /usr/local/lib/python3.11/dist-packages (from jsonschema<5.0.0,>=4.22.0->litellm>=1.60.3->dspy) (2025.4.1)
+    Requirement already satisfied: referencing>=0.28.4 in /usr/local/lib/python3.11/dist-packages (from jsonschema<5.0.0,>=4.22.0->litellm>=1.60.3->dspy) (0.36.2)
+    Requirement already satisfied: rpds-py>=0.7.1 in /usr/local/lib/python3.11/dist-packages (from jsonschema<5.0.0,>=4.22.0->litellm>=1.60.3->dspy) (0.24.0)
+    Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.11/dist-packages (from markdown-it-py>=2.2.0->rich>=13.7.1->dspy) (0.1.2)
+    Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.11/dist-packages (from python-dateutil>=2.8.2->pandas>=2.1.1->dspy) (1.17.0)
+    Requirement already satisfied: greenlet>=1 in /usr/local/lib/python3.11/dist-packages (from sqlalchemy>=1.4.2->optuna>=3.4.0->dspy) (3.2.2)
+    Requirement already satisfied: python-docx in /usr/local/lib/python3.11/dist-packages (1.1.2)
+    Requirement already satisfied: lxml>=3.1.0 in /usr/local/lib/python3.11/dist-packages (from python-docx) (5.4.0)
+    Requirement already satisfied: typing-extensions>=4.9.0 in /usr/local/lib/python3.11/dist-packages (from python-docx) (4.13.2)
+
+    try:
+        import PyPDF2
+    except ImportError:
+        print("WARNING: PyPDF2 library not found. PDF extraction will be disabled.")
+        print("         Install it using: pip install PyPDF2")
+        PyPDF2 = None
+
+    try:
+        import docx
+    except ImportError:
+        print("WARNING: python-docx library not found. DOCX extraction will be disabled.")
+        print("         Install it using: pip install python-docx")
+        docx = None
+
+    def _extract_text_from_pdf(file_content: bytes) -> Optional[str]:
+        if not PyPDF2: return None
+        try:
+            pdf_file = io.BytesIO(file_content); reader = PyPDF2.PdfReader(pdf_file); text = ""
+            if reader.is_encrypted:
+                try:
+                    if reader.decrypt('') == PyPDF2.PasswordType.NOT_DECRYPTED: return None
+                except Exception: return None
+            for page in reader.pages:
+                try:
+                    page_text = page.extract_text();
+                    if page_text: text += page_text + "\n"
+                except Exception: continue
+            return text.strip() if text else None
+        except PyPDF2.errors.PdfReadError: return None
+        except Exception: return None
+
+
+    def _extract_text_from_docx(file_content: bytes) -> Optional[str]:
+        if not docx: return None
+        try:
+            doc_file = io.BytesIO(file_content); document = docx.Document(doc_file)
+            text = "\n".join([para.text for para in document.paragraphs if para.text])
+            return text.strip() if text else None
+        except Exception: return None
+
+
+    def _read_text_from_txt(file_content: bytes, filename_for_log: str) -> Optional[str]:
+        try: text = file_content.decode('utf-8'); return text
+        except UnicodeDecodeError:
+            try: text = file_content.decode('latin-1'); return text
+            except Exception: return None
+        except Exception: return None
+
+
+
+    def extract_and_copy_text_files(input_dir: str, output_dir: str) -> List[str]:
+        if not os.path.isdir(input_dir):
+            print(f"Error: Input directory not found or is not a directory: '{input_dir}'")
+            return []
+
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"Output directory: '{os.path.abspath(output_dir)}'")
+
+        successfully_processed_files = []
+        processed_count = 0
+        skipped_count = 0
+
+        print(f"\nScanning directory: '{os.path.abspath(input_dir)}'...")
+
+        files_to_process = []
+        for root, _, files in os.walk(input_dir):
+            for filename in files:
+                 files_to_process.append(os.path.join(root, filename))
+
+        total_files = len(files_to_process)
+        print(f"Found {total_files} potential files to process.")
+
+        # --- Process each file ---
+        for i, input_file_path in enumerate(files_to_process):
+            filename = os.path.basename(input_file_path)
+            base_name, file_extension = os.path.splitext(filename)
+            file_extension = file_extension.lower()
+
+            supported_extensions = [".pdf", ".docx", ".txt"]
+            if file_extension not in supported_extensions:
+                continue # Skip unsupported types early
+
+            # Use relative path for potentially deeply nested files for cleaner logs
+            try:
+                relative_path = os.path.relpath(input_file_path, input_dir)
+            except ValueError:
+                relative_path = input_file_path
+            print(f"\nProcessing file {i+1}/{total_files}: {relative_path}")
+
+
+            if file_extension == ".pdf" and not PyPDF2:
+                print("    - Skipping PDF: PyPDF2 library not available.")
+                skipped_count += 1
+                continue
+            if file_extension == ".docx" and not docx:
+                print("    - Skipping DOCX: python-docx library not available.")
+                skipped_count += 1
+                continue
+
+            try:
+                with open(input_file_path, 'rb') as f:
+                    file_content = f.read()
+            except IOError as e:
+                print(f"    - Error reading file: {e}")
+                skipped_count += 1
+                continue
+            except Exception as e:
+                 print(f"    - Unexpected error reading file: {e}")
+                 skipped_count += 1
+                 continue
+
+            full_text = None
+            if file_extension == ".pdf":
+                full_text = _extract_text_from_pdf(file_content)
+            elif file_extension == ".docx":
+                full_text = _extract_text_from_docx(file_content)
+            elif file_extension == ".txt":
+                full_text = _read_text_from_txt(file_content, filename)
+
+            if full_text is not None:
+                output_filename = base_name + ".txt"
+                output_file_path = os.path.join(output_dir, output_filename)
+
+                try:
+                    print(f"    Attempting to write to: {output_filename}") # Add debug print
+                    with open(output_file_path, 'w', encoding='utf-8') as f_out:
+                        f_out.write(full_text.strip())
+                        # --- Add these lines to force flush ---
+                        f_out.flush() # Flush Python's internal buffer
+                        os.fsync(f_out.fileno()) # Ask OS to sync to disk (Drive mount)
+                        # ----------------------------------------
+                    action = "Extracted and saved" if file_extension != ".txt" else "Processed"
+                    print(f"    -> {action} to: {output_filename} (Write operation completed)")
+                    successfully_processed_files.append(os.path.abspath(output_file_path))
+                    processed_count += 1
+                    # --- Optional: Add a small delay after each file ---
+                    # time.sleep(0.5) # Pause for 0.5 seconds
+                    # -------------------------------------------------
+
+                except IOError as e:
+                    print(f"    - Error writing output file '{output_filename}': {e}")
+                    skipped_count += 1
+                except Exception as e:
+                    print(f"    - Unexpected error writing output file '{output_filename}': {e}")
+                    skipped_count += 1
+            else:
+                print(f"    - Text extraction or reading failed for: {filename}")
+                skipped_count += 1
+
+        print(f"\n--- Processing Complete ---")
+        print(f"Successfully processed files reported by script: {processed_count}")
+        print(f"Skipped/Failed files:       {skipped_count}")
+        print(f"---------------------------")
+        print("INFO: Waiting a few seconds for potential Drive sync...")
+        time.sleep(5) # Add a final delay to allow background sync
+        print("INFO: Wait finished.")
+
+        return successfully_processed_files
+
+    # --- Example Usage (Keep as is) ---
+    if __name__ == "__main__":
+        INPUT_DIRECTORY = r"/content/drive/MyDrive/Books"
+        OUTPUT_DIRECTORY = r"/content/drive/MyDrive/txt_files"
+
+        if not os.path.isdir(INPUT_DIRECTORY):
+            print(f"Error: Input directory not found: '{INPUT_DIRECTORY}'")
+            sys.exit(1)
+
+        created_files = extract_and_copy_text_files(INPUT_DIRECTORY, OUTPUT_DIRECTORY)
+
+        if created_files:
+            print("\nList of created/processed TXT files reported by script:")
+            # Check existence on disk *after* the final delay
+            print("Verifying file existence in output directory:")
+            actual_files_found = 0
+            for f_path in created_files:
+                 exists = os.path.exists(f_path)
+                 print(f"- {os.path.relpath(f_path, OUTPUT_DIRECTORY)} (Exists: {exists})")
+                 if exists:
+                     actual_files_found += 1
+            print(f"\nVerification complete: {actual_files_found} files found in output directory.")
+
+        else:
+            print("\nNo TXT files were created or processed according to script logs.")
+
+    Output directory: '/content/drive/MyDrive/txt_files'
+
+    Scanning directory: '/content/drive/MyDrive/Books'...
+    Found 2 potential files to process.
+
+    Processing file 1/2: BartoSutton (1).pdf
+        Attempting to write to: BartoSutton (1).txt
+        -> Extracted and saved to: BartoSutton (1).txt (Write operation completed)
+
+    Processing file 2/2: Attention is all You need.pdf
+        Attempting to write to: Attention is all You need.txt
+        -> Extracted and saved to: Attention is all You need.txt (Write operation completed)
+
+    --- Processing Complete ---
+    Successfully processed files reported by script: 2
+    Skipped/Failed files:       0
+    ---------------------------
+    INFO: Waiting a few seconds for potential Drive sync...
+    INFO: Wait finished.
+
+    List of created/processed TXT files reported by script:
+    Verifying file existence in output directory:
+    - BartoSutton (1).txt (Exists: True)
+    - Attention is all You need.txt (Exists: True)
+
+    Verification complete: 2 files found in output directory.
+
+    #created_files
+
+    # import dspy
+    # help(dspy.LM)
+
+Helper Functions
+
+    def extract_text_from_txt_file(file_path: str) -> Optional[str]:
+
+        try:
+            # Ensure the file exists before trying to open it
+            if not os.path.exists(file_path):
+                print(f"ERROR: File not found at path: {file_path}")
+                return None
+
+            # Open the file in read mode ('r') with UTF-8 encoding (common and robust)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content
+        except FileNotFoundError: # This is redundant if os.path.exists is used, but good practice
+            print(f"ERROR: File not found: {file_path}")
+            return None
+        except Exception as e:
+            print(f"ERROR: Could not read file {file_path}. Reason: {e}")
+            return None
+    def format_history_for_dspy(history_list: List[Dict[str, Any]]) -> str:
+        formatted_history = []
+        for turn in history_list:
+            content = ""
+            if isinstance(turn.get('parts'), list) and turn['parts']:
+                content = turn['parts'][0]
+            elif isinstance(turn.get('parts'), str):
+                content = turn['parts']
+            formatted_history.append(f"{turn.get('role', 'unknown')}: {content}")
+        return "\n---\n".join(formatted_history) # Use a clear separator
+
+Syllabus Generation
+
+    class DynamicSummarizationSignature(dspy.Signature):
+        """
+        You are an AI Resource Analyzer.
+        Process the provided 'learning_material_excerpt' in the context of the 'conversation_history' and its 'resource_identifier'.
+        Extract key information MOST RELEVANT to the ongoing conversation.
+        Pay special attention to Table of Contents, chapter overviews, or introductions.
+        The summary should help create a structured learning syllabus addressing user's current focus.
+        **The resource wont be passed to any other agent.**
+
+
+        Output your analysis as a SINGLE JSON object string with the following keys:
+        - "resource_identifier": (String, use the provided identifier)
+        - "primary_topics_relevant_to_conversation": (List of strings)
+        - "core_concepts_relevant_to_conversation": (List of strings)
+        - "structure_or_progression_notes": (String)
+        - "keywords_highlighted_by_conversation": (List of strings)
+        - "inferred_learning_objectives_for_current_focus": (List of strings)
+        - "contextual_notes_for_syllabus": (String)
+
+        Ensure the output is ONLY the valid JSON object string.
+        """
+        conversation_history_str = dspy.InputField(desc="The ongoing conversation history as a formatted string.")
+        resource_identifier_str = dspy.InputField(desc="The identifier (e.g., filename) of the learning material.")
+        learning_material_excerpt_str = dspy.InputField(desc="The textual content of the learning material excerpt to be summarized and the format provided would be dict.")
+
+        # The LLM's direct output will be a JSON string
+        json_summary_str = dspy.OutputField(desc="A string containing a single, valid JSON object with the summarized analysis.")
+
+    class DynamicResourceSummarizerModule(dspy.Module):
+        def __init__(self):
+            super().__init__()
+            # Using Predict, as the task is to generate a structured string based on clear instructions.
+            # If formatting is tricky, ChainOfThought could be an alternative.
+            self.generate_json_summary = dspy.Predict(DynamicSummarizationSignature)
+
+        def forward(self,
+                    resource_content: str,
+                    resource_identifier: str,
+                    conversation_history_str: str, # Takes the list of dicts
+                    max_length: int = 100000 # Consistent with your original function
+                   ) -> Optional[Dict[str, Any]]: # Returns a Python dict or None
+
+            if not resource_content.strip():
+                print(f"[DynamicResourceSummarizerModule] Skipping empty resource: {resource_identifier}")
+                return None
+
+            truncated_content = resource_content[:max_length]
+            if len(resource_content) > max_length:
+                print(f"[DynamicResourceSummarizerModule] INFO: Resource '{resource_identifier}' truncated to {max_length} chars.")
+
+            # Format conversation history for the signature's input field
+            # Ensure format_history_for_dspy is defined and accessible
+            if 'format_history_for_dspy' not in globals(): # Basic check
+                raise NameError("Helper function 'format_history_for_dspy' is not defined.")
+            # formatted_history_str = format_history_for_dspy(formatted_history_str)
+
+            try:
+                # Call the DSPy Predictor
+                prediction = self.generate_json_summary(
+                    conversation_history_str=conversation_history_str,
+                    resource_identifier_str=resource_identifier,
+                    learning_material_excerpt_str=truncated_content
+                )
+                raw_json_string_output = prediction.json_summary_str
+
+                # Parse the JSON string output from the LLM
+                # (Similar parsing logic as in your original summarize_single_resource_dynamically)
+                cleaned_json_str = raw_json_string_output.strip()
+                if cleaned_json_str.startswith("```json"):
+                    cleaned_json_str = cleaned_json_str[len("```json"):]
+                elif cleaned_json_str.startswith("```"):
+                    cleaned_json_str = cleaned_json_str[len("```"):]
+                if cleaned_json_str.endswith("```"):
+                    cleaned_json_str = cleaned_json_str[:-len("```")]
+                cleaned_json_str = cleaned_json_str.strip()
+                print("1")
+                print(cleaned_json_str)
+
+                if not cleaned_json_str:
+                    print(f"WARN [DynamicResourceSummarizerModule]: LLM returned empty string for JSON summary for '{resource_identifier}'.")
+                    return {"resource_identifier": resource_identifier, "raw_summary_text": raw_json_string_output, "is_fallback": True, "error": "Empty JSON string"}
+
+                try:
+                    summary_data_dict = json.loads(cleaned_json_str)
+                    if isinstance(summary_data_dict, dict) and "resource_identifier" in summary_data_dict:
+                        return summary_data_dict # Success!
+                    else:
+                        print(f"WARN [DynamicResourceSummarizerModule]: For '{resource_identifier}', LLM produced non-standard JSON structure after cleaning. Output: {raw_json_string_output[:200]}...")
+                        return {"resource_identifier": resource_identifier, "raw_summary_text": raw_json_string_output, "is_fallback": True, "error": "Non-standard JSON structure"}
+                except json.JSONDecodeError:
+                    print(f"WARN [DynamicResourceSummarizerModule]: Could not parse JSON from LLM summary for '{resource_identifier}'. Raw output: {raw_json_string_output[:200]}...")
+                    return {"resource_identifier": resource_identifier, "raw_summary_text": raw_json_string_output, "is_fallback": True, "error": "JSONDecodeError"}
+
+            except Exception as e:
+                print(f"ERROR [DynamicResourceSummarizerModule]: Unexpected error during summarization for '{resource_identifier}': {e}")
+                import traceback
+                traceback.print_exc()
+                return {"resource_identifier": resource_identifier, "raw_summary_text": str(e), "is_fallback": True, "error": str(type(e).__name__)}
+
+    print("DynamicResourceSummarizerModule defined.")
+
+    DynamicResourceSummarizerModule defined.
+
+
+
+    import dspy
+    from typing import Optional, List, Dict, Any # Ensure these are imported
+
+    # --- Signature for NO Resources (Revised & Detailed) ---
+    class SyllabusNoResourcesSignature(dspy.Signature):
+        """
+        **You are an expert AI Syllabus Creator.**
+        Your **sole task** is to generate or modify a learning syllabus based **exclusively** on the provided 'learning_conversation' history.
+        **No external resources, documents, or summaries are provided for this specific task, nor should any be assumed or hallucinated.** You must work only with the conversational context.
+
+        **Your Goal:** Produce a well-structured, practical, and coherent syllabus XML.
+
+        **Mode of Operation (Infer from 'learning_conversation'):**
+        1.  **Modification:** If the 'learning_conversation' contains a previously presented syllabus (typically in `<syllabus>...</syllabus>` tags from an 'assistant' or 'model' role) AND subsequent user messages clearly provide feedback or request changes to THAT specific syllabus, your primary goal is to **modify that most recent relevant syllabus**. Accurately incorporate all user feedback.
+        2.  **Generation:** If the 'learning_conversation' indicates a new learning topic, or if no prior syllabus for the current topic is evident, or if the user explicitly requests a fresh start, your goal is to **generate a new syllabus from scratch** based on the user's stated goals, experience level, and desired topic derived from the conversation.
+
+        **Syllabus Structure Requirements:**
+        *   Organize into 2 to 5 distinct learning phases.
+        *   Each phase must contain 2 to 4 specific lessons or topics.
+        *   Arrange phases and lessons in a logical, progressive order, building complexity incrementally.
+
+        **Lesson Detail Requirements (for each lesson):**
+        *   `Topic`: A clear, concise title.
+        *   `Keywords`: A list of 3-5 key terms or concepts.
+        *   `Objective`: 1-2 sentences describing what the learner should understand/do post-lesson.
+        *   `Focus`: 1-2 sentences on the main emphasis or key takeaways.
+
+        **Output Format: CRITICAL - Output ONLY the complete syllabus XML structure enclosed within `<syllabus>` and `</syllabus>` tags. Do not include any other conversational text, explanations, or apologies before or after the XML block.**
+        """
+        learning_conversation = dspy.InputField(desc="The complete, ordered conversation history. This is your ONLY source of information for user needs, previous syllabi (if any, enclosed in <syllabus> tags), and feedback.")
+        syllabus_xml = dspy.OutputField(desc="The complete generated or modified syllabus as a single XML string, starting with <syllabus> and ending with </syllabus>.")
+
+    # --- Signature for LIGHT/RAW Text Resources (Revised & Detailed) ---
+    class SyllabusWithRawTextSignature(dspy.Signature):
+        """
+        **You are an expert AI Syllabus Creator.**
+        Your **sole task** is to generate or modify a learning syllabus using the 'learning_conversation' history AND the provided 'raw_resource_excerpts_json'.
+        **Crucial Context: The 'raw_resource_excerpts_json' you receive contains snippets of actual learning materials. This detailed content is exclusive to you for syllabus creation; no other AI agent has processed or summarized it for this purpose. Your thorough analysis and direct integration of this raw text are paramount.**
+
+        **Your Goal:** Produce a well-structured syllabus XML that is deeply informed by both the user's needs (from conversation) and the specific content of the raw text excerpts.
+
+        **'raw_resource_excerpts_json' Input:** This is a JSON string representing an object. Keys are resource identifiers (e.g., filenames), and values are the corresponding short raw text excerpts.
+
+        **Mode of Operation (Infer from 'learning_conversation', integrate 'raw_resource_excerpts_json'):**
+        1.  **Modification:** If the 'learning_conversation' contains a prior syllabus (in `<syllabus>` tags) and user feedback, **modify that syllabus**. Directly integrate relevant information, concepts, definitions, and examples from the 'raw_resource_excerpts_json' to address the feedback and enrich the syllabus.
+        2.  **Generation:** If generating anew, **use both the 'learning_conversation' and the 'raw_resource_excerpts_json' from scratch**. The raw text should heavily influence the topics, lesson objectives, keywords, and focus points. For instance, if an excerpt details three key steps for a process, that could become a lesson or part of one.
+
+        **Syllabus Structure & Lesson Detail Requirements:** (Same as SyllabusNoResourcesSignature: 2-5 phases, 2-4 lessons/phase; Topic, Keywords, Objective, Focus per lesson)
+        *   **Ensure keywords, objectives, and focus points directly reflect or are inspired by the content found in the 'raw_resource_excerpts_json'.**
+
+        **Output Format: CRITICAL - Output ONLY the complete syllabus XML structure enclosed within `<syllabus>` and `</syllabus>` tags. No other text.**
+        """
+        learning_conversation = dspy.InputField(desc="Complete conversation history. May contain prior syllabi (in <syllabus> tags) and feedback. This defines user needs.")
+        raw_resource_excerpts_json = dspy.InputField(desc="A JSON string: an object mapping resource IDs to their raw text snippets. This is your primary source for detailed content.")
+        syllabus_xml = dspy.OutputField(desc="The complete syllabus XML, reflecting deep integration of raw text excerpts.")
+
+    # --- Signature for HEAVY Resources (using Summaries) (Revised & Detailed) ---
+    class SyllabusWithSummariesSignature(dspy.Signature):
+        """
+        **You are an expert AI Syllabus Creator.**
+        Your **sole task** is to generate or modify a learning syllabus using the 'learning_conversation' history AND the provided 'resource_summaries_json'.
+        **Crucial Context: The 'resource_summaries_json' you receive contains structured analytical summaries of larger learning materials (e.g., identifying relevant topics, core concepts, structural notes). This summarized information is exclusive to you for syllabus creation. Your task is to synthesize these expert summaries with the user's conversational needs.**
+
+        **Your Goal:** Produce a well-structured syllabus XML that effectively translates the insights from the resource summaries into a practical learning plan aligned with user goals.
+
+        **'resource_summaries_json' Input:** This is a JSON string representing an object. Keys are resource identifiers, and values are individual JSON summary objects for each resource (each containing keys like 'primary_topics_relevant_to_conversation', 'core_concepts_relevant_to_conversation', 'contextual_notes_for_syllabus', etc.).
+
+        **Mode of Operation (Infer from 'learning_conversation', integrate 'resource_summaries_json'):**
+        1.  **Modification:** If 'learning_conversation' shows a prior syllabus (in `<syllabus>` tags) and user feedback, **modify that syllabus**. Intelligently weave the topics, concepts, and contextual notes from the 'resource_summaries_json' to address feedback and improve the syllabus.
+        2.  **Generation:** If generating anew, **use both 'learning_conversation' and 'resource_summaries_json' from scratch**. The summaries (especially 'primary_topics_relevant', 'core_concepts_relevant', 'contextual_notes_for_syllabus') should guide the choice of phases, lesson topics, keywords, objectives, and focus.
+
+        **Syllabus Structure & Lesson Detail Requirements:** (Same as SyllabusNoResourcesSignature: 2-5 phases, 2-4 lessons/phase; Topic, Keywords, Objective, Focus per lesson)
+        *   **Ensure lesson content is strongly guided by the insights presented in the 'resource_summaries_json'.**
+
+        **Output Format: CRITICAL - Output ONLY the complete syllabus XML structure enclosed within `<syllabus>` and `</syllabus>` tags. No other text.**
+        """
+        learning_conversation = dspy.InputField(desc="Complete conversation history. Defines user needs and may contain prior syllabi/feedback.")
+        resource_summaries_json = dspy.InputField(desc="A JSON string: an object mapping resource IDs to their structured summary objects. This provides high-level insights and content pointers.")
+        syllabus_xml = dspy.OutputField(desc="The complete syllabus XML, reflecting effective use of resource summaries.")
+
+
+    class SyllabusGeneratorRouter(dspy.Module):
+        def __init__(self):
+            super().__init__()
+            # Use ChainOfThought for potentially better structured output for syllabus generation
+            self.gen_no_resources = dspy.Predict(SyllabusNoResourcesSignature)
+            self.gen_with_raw = dspy.Predict(SyllabusWithRawTextSignature)
+            self.gen_with_summaries = dspy.Predict(SyllabusWithSummariesSignature)
+
+        def forward(self,
+                    conversation_str: str,
+                    #task_description: str,
+                    resource_type: str, # "NONE", "RAW_TEXT", "SUMMARIES"
+                    resource_content: Optional[str] = None, # Actual raw text or JSON summaries string
+                    # existing_syllabus_xml: Optional[str] = None Not needed
+                   ) -> str: # Returns the syllabus_xml string
+
+            common_args = {
+                "learning_conversation": conversation_str,
+                #"task_description": #task_description,
+                # "existing_syllabus_xml": existing_syllabus_xml if existing_syllabus_xml else "None"
+            }
+
+            if resource_type == "NONE":
+                prediction = self.gen_no_resources(**common_args)
+            elif resource_type == "RAW_TEXT":
+                if not resource_content: raise ValueError("resource_content needed for RAW_TEXT type")
+                prediction = self.gen_with_raw(raw_resource_excerpts=resource_content, **common_args)
+            elif resource_type == "SUMMARIES":
+                if not resource_content: raise ValueError("resource_content needed for SUMMARIES type (should be JSON string)")
+                prediction = self.gen_with_summaries(resource_summaries_json=resource_content, **common_args)
+            else:
+                raise ValueError(f"Unknown resource_type: {resource_type}")
+
+            # Post-process to ensure <syllabus> tags, as in your previous SyllabusGenerator
+            content = prediction.syllabus_xml.strip()
+            if not content.lower().startswith("<syllabus>"):
+                content = f"<syllabus>\n{content}"
+            if not content.lower().endswith("</syllabus>"):
+                content = f"{content}\n</syllabus>"
+            return content
+
+    print("SyllabusGeneratorRouter defined.")
+
+    SyllabusGeneratorRouter defined.
+
+Convo Manager, Prompt Generator
+
+    class InitialResourceSummarySignature(dspy.Signature):
+        """
+        You are an AI Resource Analyzer.
+        Analyze the provided learning resource excerpts (JSON object with filenames as keys and text content as values).
+        For EACH resource, identify its primary subject, main topics, and key concepts/information.
+        Optionally infer the content type/style.
+        Present your analysis for each resource separately in a single text block.
+        Your goal is to allow a Conversation Manager to quickly grasp the nature and content of each resource.
+        Example of output format:
+        **Resource: 'filename.txt'**
+        This excerpt appears to be...
+        *   Main Topics: ...
+        *   Key Information: ...
+        ---
+        **Resource: 'another_file.pdf'**
+        ...
+        """
+        # Input Field Which is Clearly Input
+        resource_excerpts_json = dspy.InputField(desc="A JSON string representing a dictionary where keys are resource identifiers (e.g., filenames) and values are the truncated text content of that resource.")
+        summary_report = dspy.OutputField(desc="A formatted text report summarizing each resource excerpt as per the main instruction.")
+
+    class InitialResourceSummarizer(dspy.Module):
+        def __init__(self):
+            super().__init__()
+            self.summarize = dspy.Predict(InitialResourceSummarySignature)
+
+        def forward(self, extracted_basedata_dict: Dict[str, str]):
+            # Convert dict to JSON string for the input field
+            json_input_str = json.dumps(extracted_basedata_dict, indent=2)
+            prediction = self.summarize(resource_excerpts_json=json_input_str)
+            return prediction.summary_report # Means Return Output and There is
+
+    # --- Conversation Manager ---
+    import dspy
+    from typing import Optional, List, Dict, Any
+
+    class SyllabusNegotiationSignature(dspy.Signature):
+        """
+        **You are an expert AI Conversation Manager.**
+        Your primary role is to facilitate a conversation to define requirements for a learning syllabus by analyzing the inputs and determining the next system action.
+
+        **Inputs to Analyze:**
+        1.  `conversation_history`: The full record of previous turns.
+        2.  `current_syllabus_xml`: The latest syllabus draft (XML string or "None").
+        3.  `user_input`: The most recent message from the user.
+
+        **Your Task:** Based on the inputs, determine the single most appropriate `action_code` from the list below.
+        Additionally, if the action is purely conversational (`CONVERSE`), provide the `display_text` for the user.
+        For all other action codes (`GENERATE`, `MODIFY`, `FINALIZE`, `PERSONA`), the `display_text` **MUST be an empty string or a placeholder like "[NO_DISPLAY_TEXT]"** as the system will handle the next step non-conversationally or with a dedicated prompter.
+
+        **Action Codes & Conditions:**
+        *   `GENERATE`: Output this if sufficient initial information (topic, experience, goals) has been gathered from the conversation to request the *very first* syllabus draft.
+        *   `MODIFY`: Output this if a syllabus exists (indicated by a non-"None" `current_syllabus_xml` or visible in `conversation_history`) AND the `user_input` (or recent history) provides clear feedback or requests changes to that existing syllabus.
+        *   `FINALIZE`: Output this if the `user_input` (or recent history) explicitly confirms that the user is satisfied with the *most recent* syllabus presented and no further changes are needed.
+        *   `PERSONA`: Output this if the conversation indicates the user has just provided their preferred learning style (this action signals readiness for the system to generate the tutor's persona prompt). `display_text` can be a very brief acknowledgment like "Got it, thanks!" or empty.
+        *   `CONVERSE`: Output this for all other situations. This includes asking clarifying questions, acknowledging user statements, providing general responses, or when a previous action (like syllabus generation) has just completed and you need to prompt the user for feedback on that artifact (which would be visible in the updated `conversation_history`).
+
+        **Output Field Rules:**
+        - `action_code`: MUST be one of the specified codes.
+        - `display_text`:
+            - For `CONVERSE`: Provide the natural language response to the user.
+            - For `GENERATE`, `MODIFY`, `FINALIZE`: MUST be empty or "[NO_DISPLAY_TEXT]".
+            - For `PERSONA`: Can be empty, "[NO_DISPLAY_TEXT]", or a very brief acknowledgment.
+        """
+        conversation_history = dspy.InputField(desc="Previous turns in the conversation, formatted as a multi-line string. This may contain previously presented syllabi.")
+        current_syllabus_xml = dspy.InputField(desc="The current draft syllabus XML (<syllabus>...</syllabus>), or the string 'None' if no syllabus has been successfully generated or focused on yet.")
+        user_input = dspy.InputField(desc="The user's latest message that needs processing.")
+        # resource_summary = dspy.InputField(desc="A brief summary/overview of user-provided learning resources, or 'None' if no resources are relevant or provided.")
+
+        action_code = dspy.OutputField(desc="One of: GENERATE, MODIFY, FINALIZE, PERSONA, CONVERSE.")
+        display_text = dspy.OutputField(desc="The conversational text response for the user. MUST be empty or '[NO_DISPLAY_TEXT]' if action_code is GENERATE, MODIFY, or FINALIZE. Can be brief for PERSONA.")
+
+    print("Revised SyllabusNegotiationSignature with stricter display_text rules defined.")
+
+    class ConversationManager(dspy.Module):
+        def __init__(self):
+            super().__init__()
+            # Using Predict as the Signature is now quite detailed.
+            # If the LLM struggles to follow the conditional logic for display_text,
+            # ChainOfThought might be needed, or more explicit examples in the Signature.
+            self.manage = dspy.Predict(SyllabusNegotiationSignature)
+
+        def forward(self, conversation_history: str, current_syllabus_xml: str, user_input: str):
+            # The user_input is the latest turn, but the full context is in conversation_history.
+            # The Signature is designed to look at the user_input in context of the whole history.
+            prediction = self.manage(
+                conversation_history=conversation_history,
+                current_syllabus_xml=current_syllabus_xml,
+                user_input=user_input, # Pass the latest user input specifically
+                # resource_summary=resource_summary
+            )
+
+            action = prediction.action_code.strip().upper()
+            text_to_display = prediction.display_text.strip()
+
+            # Enforce display_text rules based on the Signature's instructions
+            if action in ["GENERATE", "MODIFY", "FINALIZE"]:
+                if text_to_display and text_to_display.upper() != "[NO_DISPLAY_TEXT]":
+                    print(f"[ConversationManager WARNING] Action '{action}' returned with display_text: '{text_to_display}'. Forcing to empty as per rules.")
+                text_to_display = "" # Enforce empty
+            elif text_to_display.upper() == "[NO_DISPLAY_TEXT]":
+                text_to_display = ""
+
+            # For PERSONA, allow brief confirmation or empty. If it's placeholder, make empty.
+            if action == "PERSONA" and text_to_display.upper() == "[NO_DISPLAY_TEXT]":
+                text_to_display = ""
+
+            return action, text_to_display
+
+    print("ConversationManager module using revised signature defined.")
+
+    class LearningStyleSignature(dspy.Signature):
+        """
+        You are an AI assistant. The user has just finalized a learning syllabus.
+        Your goal is to formulate a concise and engaging question to prompt the user about their preferred learning style and the kind of AI tutor personality they'd find most effective for the subject matter (discernible from the history).
+        Encourage specific details beyond generic answers (e.g., interaction style, content format like examples/theory/analogies, pace, feedback type).
+        Output ONLY the question itself.
+        """
+        conversation_history_with_final_syllabus = dspy.InputField(desc="Full conversation history, including the finalized syllabus (which might be the last model_artifact turn).")
+        question_to_user = dspy.OutputField(desc="The single, clear question to ask the user about their learning preferences.")
+
+    class LearningStyleQuestioner(dspy.Module):
+        def __init__(self):
+            super().__init__()
+            self.ask = dspy.Predict(LearningStyleSignature)
+
+        def forward(self, conversation_history_str: str):
+            prediction = self.ask(conversation_history_with_final_syllabus=conversation_history_str)
+            return prediction.question_to_user
+
+    # --- Persona Prompt Generator (Body only) ---
+    import dspy
+    import json # For parsing
+    from typing import List, Dict, Optional, Any
+
+    import dspy
+    import json
+    from typing import List, Dict, Optional, Any
+
+    # --- Revised Signature for Persona Prompt Body (for dspy.Predict) ---
+    class PersonaPromptBodyPredictSignature(dspy.Signature):
+        """
+        **You are an AI Persona Architect.**
+        Your goal is to generate the main body of a system prompt for an AI Tutor.
+        This prompt body should accurately reflect the user's desired teaching style, personality, depth preferences, and subject matter, all derived from the provided 'conversation_history_with_style_and_syllabus_context'.
+
+        **The prompt body MUST include:**
+        1.  **Clear Persona Definition:** (e.g., AI Tutor's name like 'Synapse', its subject specialization, and its core mission).
+        2.  **Core Principles Section:** (Detail the tutor's personality, teaching philosophy, desired traits, inspirational figures and how to emulate them, key emphasis areas. Use bullet points for clarity).
+        3.  **Teaching Approach / Methodology Section:** (Outline specific methods: clarity/explanation style, interaction style, handling depth, practical elements, guidance vs. direct answers balance).
+        4.  **Overall Goal Statement:** (A sentence summarizing the ultimate aim, e.g., "Your goal is to foster deep understanding...").
+
+        **CRITICAL: The generated text should be ONLY the prompt body itself, ready to have the syllabus appended to it externally. DO NOT include phrases like "Here is the syllabus..." or the {{SYLLABUS_SECTION}} placeholder.**
+        Focus solely on crafting the persona and teaching instructions for the tutor.
+        """
+        conversation_history_with_style_and_syllabus_context = dspy.InputField(
+            desc="Full conversation history, including the finalized syllabus context (to understand the subject) and the user's stated learning style preferences (to inform persona and teaching approach)."
+        )
+
+        # Only one output field: the prompt body text itself.
+        prompt_body_text = dspy.OutputField(
+            desc="The complete system prompt body for the AI Tutor, ending just before where the syllabus would be introduced by the calling system."
+        )
+
+    print("PersonaPromptBodyPredictSignature (for dspy.Predict, outputs only text) defined.")
+    class PersonaPromptGenerator(dspy.Module):
+        def __init__(self):
+            super().__init__()
+            # Switched to dspy.Predict with the new signature
+            self.generate_prompt_body = dspy.Predict(PersonaPromptBodyPredictSignature)
+
+        def forward(self,conversation_history_str: str):
+          try:
+            # Call the dspy.Predict instance
+            prediction_object = self.generate_prompt_body(
+                conversation_history_with_style_and_syllabus_context=conversation_history_str
+            )
+
+            prompt_body = prediction_object.prompt_body_text
+
+            if not prompt_body or not prompt_body.strip():
+                print("[PersonaPromptGenerator] Error: LLM returned an empty or whitespace-only prompt body.")
+                return None # Or a default fallback string
+
+            return prompt_body.strip() # Return the generated text
+
+          except Exception as e:
+            print(f"[PersonaPromptGenerator] Error in forward pass: {e}")
+            import traceback
+            traceback.print_exc()
+            return None # Or a default fallback string
+
+    print("PersonaPromptGenerator (using dspy.Predict and PersonaPromptBodyPredictSignature) defined.")
+    # --- Generic Explainer Interaction Signature ---
+    class GenericInteractionSignature(dspy.Signature):
+        """
+        Follow the comprehensive system_instructions provided, which define your role, persona, and current task (e.g., acting as an AI Tutor explaining a syllabus topic).
+        Respond to the user's query based on these instructions and the conversation history.
+        """
+        system_instructions = dspy.InputField(desc="The full system prompt defining your current role, persona, how to interact, and often the learning material (like a syllabus).")
+        history = dspy.InputField(desc="Recent conversation history relevant to the current interaction.")
+        user_query = dspy.InputField(desc="The user's current question or statement.")
+        response = dspy.OutputField(desc="Your response, adhering to the system_instructions.")
+
+    print("DSPy Signatures and Modules defined.")
+
+    Revised SyllabusNegotiationSignature with stricter display_text rules defined.
+    ConversationManager module using revised signature defined.
+    PersonaPromptBodyPredictSignature (for dspy.Predict, outputs only text) defined.
+    PersonaPromptGenerator (using dspy.Predict and PersonaPromptBodyPredictSignature) defined.
+    DSPy Signatures and Modules defined.
+
+    def resource_summary_extractor(
+        extracted_basedata_dict: dict,
+        summary_router_instance, # Pass the summary_router object
+        conversation_history_str: str
+    ) -> str:
+        if not extracted_basedata_dict:
+            print("Warning: extracted_basedata_dict is empty. No summaries to process.")
+            return "{}"
+
+        extracted_summary_list = [
+            summary_router_instance.forward(
+                resource_content=value,
+                resource_identifier=key,
+                conversation_history_str=conversation_history_str
+            )
+            for key, value in extracted_basedata_dict.items()
+        ]
+
+        #
+        aggregated_summaries_dict = {}
+        for summary_dict_item in extracted_summary_list:
+
+            if isinstance(summary_dict_item, dict) and "resource_identifier" in summary_dict_item:
+                aggregated_summaries_dict[summary_dict_item["resource_identifier"]] = summary_dict_item
+            else:
+
+                print(f"Warning: Skipping invalid or incomplete summary object: {summary_dict_item}")
+
+        # 3. Convert the aggregated summaries to a JSON string
+        resource_summaries_json_string_for_signature: str
+        if aggregated_summaries_dict:
+            try:
+                resource_summaries_json_string_for_signature = json.dumps(aggregated_summaries_dict, indent=2)
+            except TypeError as e:
+                print(f"Error: Could not serialize aggregated_summaries_dict to JSON: {e}")
+                print(f"Problematic data: {aggregated_summaries_dict}")
+                resource_summaries_json_string_for_signature = "{}" # Fallback
+        else:
+            resource_summaries_json_string_for_signature = "{}"
+
+            print("Warning: No valid summaries were aggregated to create a JSON string.")
+
+        return resource_summaries_json_string_for_signature
+
+Orchestrator
+
+    import dspy
+    import json
+    import os
+    import time
+    from typing import List, Dict, Optional, Any, Tuple
+
+    # --- Main Negotiation Function using DSPy (Revised for new Syllabus Signatures) ---
+    def negotiate_syllabus_chat_dspy(
+        resource_paths: Optional[List[str]] = None,
+        verbose: bool = True
+    ) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
+
+        if resource_paths is None: resource_paths = []
+        conversation_history: List[Dict[str, Any]] = []
+        current_syllabus_xml_content: Optional[str] = None # is it needed yep to store the Present Syllabus
+        finalization_requested = False
+
+        # To determine resource type and content for SyllabusGeneratorRouter
+        resource_type_for_syllabus_gen: str = "NONE"
+        resource_content_for_syllabus_gen: Optional[str] = "No resources were processed or provided."
+
+        # --- Instantiate DSPy Modules ---
+        try:
+            if verbose: print("[System] Initializing DSPy modules for negotiation...")
+            initial_summarizer = InitialResourceSummarizer()
+            convo_manager = ConversationManager() # Signature should guide it on actions
+            syllabus_router = SyllabusGeneratorRouter() # This now uses the refined internal signatures
+            style_asker = LearningStyleQuestioner()
+            dynamic_summarizer_module = DynamicResourceSummarizerModule()
+            if verbose: print("[System] Negotiation DSPy modules initialized.")
+        except Exception as e:
+            if verbose: print(f"[System Error] Failed to instantiate negotiation DSPy modules: {e}")
+            return None
+
+        # --- Initial Resource Processing ---
+        if resource_paths:
+            if verbose: print(f"\n[System] Processing {len(resource_paths)} provided resource paths for syllabus generation context...")
+
+
+            total_chars = 0
+            all_raw_texts_dict = {} # For "RAW_TEXT" type
+            for path in resource_paths:
+                content = extract_text_from_txt_file(path)
+                if content:
+                    total_chars += len(content)
+                    filename = os.path.basename(path)
+
+                    all_raw_texts_dict[filename] = content
+
+
+            if not all_raw_texts_dict:
+                if verbose: print("[System] No text could be extracted from provided resource paths.")
+                resource_type_for_syllabus_gen = "NONE"
+                resource_content_for_syllabus_gen = "No text extracted from provided paths."
+
+            elif total_chars > 70000: # Heuristic: if total raw text is large, summarize all
+                resource_type_for_syllabus_gen = "SUMMARIES"
+                if verbose: print(f"[System] Total chars {total_chars} > threshold. Will generate dynamic summaries for ALL resources.")
+                resource_content_for_syllabus_gen = "Not None will be generated Dynamically"
+                light_raw_excerpts_dict = {}
+                for filename, full_content in all_raw_texts_dict.items():
+                    light_raw_excerpts_dict[filename] = full_content[:20000]
+
+
+
+            else: # Total chars is not too large, pass as "RAW_TEXT" (truncated snippets)
+                resource_type_for_syllabus_gen = "RAW_TEXT"
+                light_raw_excerpts_dict = {}
+                for filename, full_content in all_raw_texts_dict.items():
+                    light_raw_excerpts_dict[filename] = full_content[:20000] # Truncate for "light" raw text
+                resource_content_for_syllabus_gen = json.dumps(light_raw_excerpts_dict, indent=2)
+                if verbose: print(f"[System] Using truncated raw text snippets (JSON). Length: {len(resource_content_for_syllabus_gen)}")
+        else:
+            resource_type_for_syllabus_gen = "NONE"
+            resource_content_for_syllabus_gen = "No resources provided."
+
+
+        # --- Initial Greeting (can now use the processed resource info status) ---
+        ai_greeting_text = "Hello! What topic are you interested in learning about today and also if you have any Resources Provide at the Start?"
+        # conversation_history.append({'role': 'model', 'parts': [ai_turn_text]})
+        # print(conversation_history)
+        if resource_type_for_syllabus_gen != "NONE" and "Error" not in resource_content_for_syllabus_gen:
+            ai_turn_summarizer = initial_summarizer(extracted_basedata_dict=light_raw_excerpts_dict)
+            print(ai_turn_summarizer)
+        elif resource_paths: # Paths were given, but processing might have failed
+            ai_turn_text += "\nI see you provided some resources, but I had a bit of trouble processing them fully. Let's proceed with our conversation."
+            conversation_history.append({'role': 'model', 'parts': [ai_turn_text]})
+
+
+
+        if verbose:
+            print(f"\n--- Starting Syllabus Negotiation (DSPy) ---")
+        conversation_history.append({'role': 'model', 'parts': [ai_greeting_text]})
+        print(f"AI: {ai_greeting_text}")
+
+        print(resource_content_for_syllabus_gen)
+
+        while True:
+
+
+            try:
+                user_input = input("You: ").strip()
+            except EOFError: #
+                if verbose: print("\nAI: Session ended by user (EOF).")
+                return None
+            if user_input.lower() in ["quit", "exit", "bye"]: # ... (same as before) ...
+                if verbose: print("AI: Okay, ending syllabus planning. Goodbye!")
+                return None
+            if not user_input: continue
+            conversation_history.append({'role': 'user', 'parts': [user_input]})
+
+            if len(conversation_history) <=2 and resource_type_for_syllabus_gen != "NONE":
+                conversation_history.append({'role': 'model', 'parts': [ai_turn_summarizer]})
+                # Intial Summary is sent
+
+
+            try:
+                history_str = format_history_for_dspy(conversation_history)
+                syllabus_str_for_manager = current_syllabus_xml_content if current_syllabus_xml_content else "None"
+
+
+                if verbose: print(f"[System Debug] Calling ConversationManager...")
+                manager_prediction = convo_manager(
+                    conversation_history=history_str,
+                    current_syllabus_xml=syllabus_str_for_manager,
+                    user_input=user_input, # User input is part of history_str
+                    #resource_summary=resource_summary_for_convo_manager # i feel its not needed
+                )
+                action_code_str_from_manager, display_text_from_manager = manager_prediction
+                action_code = action_code_str_from_manager # Already stripped and uppercased
+                display_text = display_text_from_manager   # Already stripped
+
+
+
+                if verbose: # ... (same logging as before) ...
+                    if display_text: print(f"AI: {display_text}")
+                    else: print(f"AI: [Received action '{action_code}' with no display text from manager]")
+
+                if display_text: conversation_history.append({'role': 'model', 'parts': [display_text]})
+
+
+                if action_code == "GENERATE" or action_code == "MODIFY":
+                    task_type_str = "generation" if action_code == "GENERATE" else "modification"
+                    if verbose: print(f"[System] Syllabus {task_type_str} requested by manager...")
+
+
+                    try:
+
+                        if resource_type_for_syllabus_gen == "SUMMARIES":
+                            resource_content_for_syllabus_gen = resource_summary_extractor(
+                                extracted_basedata_dict=light_raw_excerpts_dict,
+                                summary_router_instance=dynamic_summarizer_module,
+                                conversation_history_str=history_str
+                            )
+                        generated_xml = syllabus_router.forward(
+                            conversation_str=history_str, # Full history for LLM to infer task
+                            resource_type=resource_type_for_syllabus_gen,
+                            resource_content=resource_content_for_syllabus_gen if resource_type_for_syllabus_gen != "NONE" else None
+                        ) # Works for every type of Syllabus Signature
+                        print({resource_content_for_syllabus_gen})
+
+
+                        if generated_xml and not generated_xml.upper().startswith(("[ERROR", "[BLOCKED")):
+                            current_syllabus_xml_content = generated_xml # Store the full XML block
+                            if verbose: print(f"\n[System presenting syllabus]\n{current_syllabus_xml_content}\n")
+                            conversation_history.append({'role': 'model_artifact', 'parts': [current_syllabus_xml_content]})
+                        else:
+                            err_msg = f"AI: Sorry, I encountered an issue during syllabus {task_type_str}. {(generated_xml or 'No details.')[:200]}"
+                            if verbose: print(err_msg)
+                            conversation_history.append({'role': 'model', 'parts': [err_msg]})
+
+                    except Exception as e_gen:
+                        if verbose: print(f"[System Error] Syllabus Router call failed: {e_gen}")
+                        conversation_history.append({'role': 'model', 'parts': [f"Sorry, there was an error with syllabus {task_type_str}."]})
+
+
+                elif action_code == "FINALIZE":
+                    if verbose: print("[System] Finalization requested by manager.")
+                    if current_syllabus_xml_content:
+                        finalization_requested = True
+                        if not ("learning style" in display_text.lower() or \
+                                "prefer to learn" in display_text.lower() or \
+                                "teach" in display_text.lower()):
+                            try:
+                                if verbose: print("[System] Manager didn't ask style question on FINALIZE, calling StyleAsker...")
+                                style_question_prediction = style_asker(
+                                    conversation_history_str=format_history_for_dspy(conversation_history)
+                                )
+                                style_question_text = style_question_prediction.strip()
+                                if verbose: print(f"AI: {style_question_text}")
+                                conversation_history.append({'role': 'model', 'parts': [style_question_text]})
+                            except Exception as e_ask:
+                                if verbose: print(f"[System Error] LearningStyleQuestioner call failed: {e_ask}")
+                                fallback_style_q = "Great, the syllabus is set! To help tailor the learning experience, how do you prefer to learn?"
+                                if verbose: print(f"AI: {fallback_style_q}")
+                                conversation_history.append({'role': 'model', 'parts': [fallback_style_q]})
+                    else: # ... same fallback ...
+                        if verbose: print("[System Warning] Finalization requested by manager, but no syllabus exists.")
+                        no_syllabus_msg = "It seems we don't have a syllabus to finalize yet. Shall we create or refine one first?"
+                        if display_text != no_syllabus_msg:
+                            conversation_history.append({'role': 'model', 'parts': [no_syllabus_msg]})
+                            if verbose: print(f"AI: {no_syllabus_msg}")
+
+
+
+
+                elif action_code == "PERSONA":
+                    if verbose: print("[System] Persona prompt generation triggered by manager.")
+                    if finalization_requested and current_syllabus_xml_content:
+                        if verbose: print("[System] Syllabus finalized. Learning style assumed in history. Negotiation complete.]")
+                        return current_syllabus_xml_content, conversation_history # EXIT
+                    else:
+                        if verbose: print("[System Warning] Persona trigger from manager, but conditions not fully met.")
+                        conditions_not_met_msg = "Before we tailor the tutor, we need a finalized syllabus and your learning style. Let's make sure those are set."
+                        if display_text != conditions_not_met_msg:
+                            conversation_history.append({'role': 'model', 'parts': [conditions_not_met_msg]})
+                            if verbose: print(f"AI: {conditions_not_met_msg}")
+
+
+                elif action_code == "CONVERSE":
+                    pass
+                else:
+                    if verbose: print(f"[System Warning] Unknown action_code '{action_code}' from ConversationManager. Treating as CONVERSE.")
+                    if not display_text:
+                        fallback_converse = "I'm not sure how to proceed with that. Could you clarify?"
+                        if verbose: print(f"AI: {fallback_converse}")
+                        conversation_history.append({'role': 'model', 'parts': [fallback_converse]})
+
+            except Exception as e_loop:
+                if verbose:
+                    print(f"[System Error] An error occurred in DSPy main negotiation loop: {e_loop}")
+                    import traceback; traceback.print_exc()
+                conversation_history.append({'role': 'model', 'parts': ["[System Error during AI turn. Please try again or type 'quit' to exit."]})
+
+        if verbose: print("[System] Negotiation loop exited unexpectedly.")
+        return None
+
+    def run_learning_session_dspy(resource_paths: Optional[List[str]] = None, verbose: bool = True):
+        print("--- Welcome to the AI Learning Assistant (DSPy Version)! ---")
+        persona_gen = PersonaPromptGenerator()
+
+
+
+        if dspy.settings.lm is None:
+            print("CRITICAL Error: DSPy LM (dspy.settings.lm) is not configured. Session cannot start.")
+            return
+        if isinstance(dspy.settings.lm, dspy.utils.DummyLM) and 'API_KEY' in globals() and API_KEY:
+            print("WARNING: API_KEY seems available, but DSPy is using a DummyLM. Real LLM calls are disabled.")
+        elif verbose:
+            print(f"INFO: Using DSPy LM: {type(dspy.settings.lm).__name__}, Model: {getattr(dspy.settings.lm, 'model', 'N/A')}")
+
+        # 2. SYLLABUS NEGOTIATION PHASE
+        #    This phase interacts with the user to create and finalize a syllabus.
+        #    It uses several DSPy modules internally: ConversationManager, SyllabusGeneratorRouter, etc.
+        if verbose: print("\n--- Phase 1: Planning Your Syllabus ---")
+        negotiation_result = None
+        try:
+            # `negotiate_syllabus_chat_dspy` handles the multi-turn conversation for syllabus planning.
+            # It returns the final syllabus XML and the complete conversation history of this phase.
+            negotiation_result = negotiate_syllabus_chat_dspy(resource_paths=resource_paths, verbose=verbose)
+        except NameError as ne: # Catch if core functions/classes are not defined
+            print(f"ERROR: A required function or class for negotiation (e.g., 'negotiate_syllabus_chat_dspy') is undefined: {ne}")
+            return
+        except Exception as e_neg: # Catch any other unexpected errors during negotiation
+            print(f"ERROR: An unexpected error occurred during syllabus negotiation phase: {e_neg}")
+            import traceback; traceback.print_exc()
+            return
+
+        if negotiation_result is None:
+            if verbose: print("\n--- Syllabus planning did not complete. Exiting session. ---")
+            return
+
+        final_syllabus_xml, final_negotiation_history = negotiation_result
+        # `final_syllabus_xml` is the string like "<syllabus>...</syllabus>"
+        # `final_negotiation_history` is the List[Dict] containing all turns from the negotiation.
+        if verbose: print("\n--- Phase 1 Complete: Syllabus Finalized! ---")
+
+
+        # 3. PERSONA PROMPT GENERATION FOR EXPLAINER AI
+        #    Uses the outcome of Phase 1 (history + final syllabus) to create instructions for the tutor AI.
+        if verbose: print("\n--- Phase 2: Preparing Your Learning Tutor ---")
+        explainer_system_prompt = None # Initialize to ensure it's always defined
+
+        try:
+            # Instantiate the PersonaPromptGenerator
+            # This module now uses dspy.Predict with PersonaPromptBodyPredictSignature
+            # and its forward method returns the prompt body string or None.
+            persona_gen = PersonaPromptGenerator() # Ensure this class is correctly defined
+
+            # Format the negotiation history for the PersonaPromptGenerator's input
+            history_for_persona_str = format_history_for_dspy(final_negotiation_history)
+
+            if verbose: print("[System] Generating persona prompt body for the AI Tutor...")
+
+            # Call the PersonaPromptGenerator's forward method.
+            explainer_prompt_body_text = persona_gen.forward(
+                conversation_history_str=history_for_persona_str,
+                #final_syllabus_xml_str=final_syllabus_xml  - Not needed
+            )
+
+            if explainer_prompt_body_text is None: # Check if persona generation failed
+                print("[System Error] Failed to generate explainer prompt body from PersonaPromptGenerator. Using a generic fallback.")
+                # Define a more complete fallback persona prompt body
+                explainer_prompt_body_text = (
+                    "You are a helpful and patient AI Tutor named 'GuideBot'.\n"
+                    "Your mission is to clearly explain the topics in the provided syllabus.\n\n"
+                    "Core Principles:\n"
+                    "*   Be encouraging and supportive.\n"
+                    "*   Break down complex topics into simple, understandable parts.\n\n"
+                    "Teaching Approach:\n"
+                    "*   Use clear language and examples.\n"
+                    "*   Check for understanding frequently.\n\n"
+                    "Your overall goal is to make learning an engaging and effective experience."
+                )
+
+            # Construct the full system prompt for the explainer AI by appending the syllabus
+            # Ensure explainer_prompt_body_text is a string before stripping
+            explainer_system_prompt = f"{str(explainer_prompt_body_text).strip()}\n\nHere is the syllabus we will follow:\n{final_syllabus_xml}"
+
+
+            if verbose:
+                print("\n[System] Generated Full Explainer System Prompt (first 300 chars):")
+                print(f"{explainer_system_prompt[:300]}...")
+                # To see the full prompt for debugging:
+                # print(f"\nDEBUG: FULL EXPLAINER SYSTEM PROMPT:\n{explainer_system_prompt}\n")
+
+        except NameError as ne: # Catch if PersonaPromptGenerator or its dependencies are undefined
+            print(f"ERROR: PersonaPromptGenerator or related class/function is undefined: {ne}")
+            print("[System] Using a very generic fallback explainer prompt due to setup error.")
+            explainer_system_prompt = f"You are a helpful AI Tutor. Explain the topics in the following syllabus clearly.\n\nHere is the syllabus we will follow:\n{final_syllabus_xml}" # Basic fallback
+        except Exception as e_persona: # Catch other unexpected errors in this phase
+            if verbose: print(f"[System Error] An unexpected error occurred during explainer prompt generation: {e_persona}")
+            import traceback; traceback.print_exc()
+            print("[System] Using a very generic fallback explainer prompt due to error.")
+            explainer_system_prompt = f"You are a helpful AI Tutor. Explain the topics in the following syllabus clearly.\n\nHere is the syllabus we will follow:\n{final_syllabus_xml}" # Basic fallback
+
+
+        # 4. EXPLAINER/LEARNING PHASE
+        #    The user interacts with the AI Tutor, which is guided by the `explainer_system_prompt`.
+        if verbose: print("\n--- Phase 3: Let's Start Learning! ---")
+
+        if explainer_system_prompt is None: # Should have been set by fallbacks if errors occurred
+            print("CRITICAL ERROR: Explainer system prompt was not generated or set. Cannot start learning phase.")
+            return
+
+        try:
+            # The explainer uses a GenericInteractionSignature with dspy.Predict.
+            # This signature takes the full system_instructions (our explainer_system_prompt) as input.
+            explainer_predictor = dspy.Predict(GenericInteractionSignature) # Ensure GenericInteractionSignature is defined
+        except NameError as ne:
+            print(f"ERROR: GenericInteractionSignature or dspy.Predict is undefined for explainer: {ne}")
+            return
+        except Exception as e_explainer_init:
+            if verbose: print(f"[System Error] Failed to instantiate explainer predictor: {e_explainer_init}")
+            return
+
+        explainer_history_list: List[Dict[str, Any]] = [] # History for this learning phase
+        try:
+            # Tutor's introduction
+            if verbose: print("[System] AI Tutor is preparing its introduction...")
+            # Prompting the tutor to introduce itself based on its newly defined persona
+            initial_explainer_query = "Based on your persona (defined in system_instructions) and the syllabus provided, please introduce yourself to the user. Briefly state what you'll be helping them with and adopt a welcoming tone consistent with your persona."
+
+            intro_prediction_obj = explainer_predictor(
+                system_instructions=explainer_system_prompt,
+                history="None", # No prior explainer history for this first turn
+                user_query=initial_explainer_query # This query prompts the tutor for its intro
+            )
+            initial_tutor_response = intro_prediction_obj.response.strip() # .response for dspy.Predict
+            if verbose: print(f"AI Tutor: {initial_tutor_response}")
+            if initial_tutor_response: explainer_history_list.append({'role': 'model', 'parts': [initial_tutor_response]})
+        except Exception as e_intro: # Catch errors during the tutor's introduction
+            if verbose: print(f"[System Error] AI Tutor intro generation failed: {e_intro}")
+            fallback_intro = "Hello! I'm ready to help you learn based on our plan. Which part of the syllabus would you like to start with?"
+            explainer_history_list.append({'role': 'model', 'parts': [fallback_intro]})
+            if verbose: print(f"AI Tutor (fallback): {fallback_intro}")
+
+        # Main learning loop with the AI Tutor
+        while True:
+            try:
+                user_explainer_input = input("You (Learning): ").strip()
+            except EOFError:
+                if verbose: print("\nAI Tutor: Session ended by user (EOF).")
+                break
+            if user_explainer_input.lower() in ["quit", "exit", "bye"]:
+                if verbose: print("AI Tutor: Okay, ending the learning session. Goodbye!")
+                break
+            if not user_explainer_input: continue
+
+            explainer_history_list.append({'role': 'user', 'parts': [user_explainer_input]})
+            history_str_for_explainer = format_history_for_dspy(explainer_history_list)
+
+            try:
+                if verbose: print(f"[System Debug] Calling Explainer predictor...")
+                tutor_prediction_obj = explainer_predictor(
+                    system_instructions=explainer_system_prompt, # Full instructions for the tutor
+                    history=history_str_for_explainer,           # Current learning phase history
+                    user_query=user_explainer_input              # User's latest query
+                )
+                tutor_response_text = tutor_prediction_obj.response.strip() # .response for dspy.Predict
+
+                if tutor_response_text and not tutor_response_text.upper().startswith(("[ERROR", "[BLOCKED", "[WARN:")):
+                    if verbose: print(f"AI Tutor: {tutor_response_text}")
+                    explainer_history_list.append({'role': 'model', 'parts': [tutor_response_text]})
+                else: # Handle empty or error-like responses
+                    err_msg_explainer = "I seem to be having a little trouble formulating a response for that. Could you perhaps rephrase your question, or would you like to try a different part of the syllabus?"
+                    if verbose: print(f"AI Tutor: {err_msg_explainer} (Original LLM response snippet: {tutor_response_text[:100]}...)")
+                    explainer_history_list.append({'role': 'model', 'parts': [err_msg_explainer]})
+            except Exception as e_explain_call: # Catch errors from the LLM call itself
+                if verbose: print(f"[System Error] Explainer DSPy call failed: {e_explain_call}")
+                explainer_history_list.append({'role': 'model', 'parts': ["[System Error during explanation. Please try again or type 'quit'."]})
+
+        if verbose: print("\n--- Learning Session Complete ---")
+
+
+    # --- Example Execution Block (ensure it's at the end) ---
+    if __name__ == "__main__":
+        print("\n--- Main Script Execution Starting ---")
+        # ... (Setup checks and resource path definitions as in the previous version) ...
+        # Ensure API_KEY, limiter, and DSPy LM config have happened from the top.
+        if 'API_KEY' not in globals() or not API_KEY:
+            print("CRITICAL: API_KEY not loaded.")
+        if dspy.settings.lm is None:
+            print("CRITICAL: dspy.settings.lm is None. DSPy is not configured. Exiting.")
+            sys.exit(1) # Critical if LM isn't set
+        else:
+            print(f"Current DSPy LM: {type(dspy.settings.lm).__name__}, Model: {getattr(dspy.settings.lm, 'model', 'N/A')}")
+            # Example: Test without resources first
+            # You'll need to ensure `DynamicResourceSummarizerModule` and its dependencies are defined
+            # for the resource processing part within `negotiate_syllabus_chat_dspy`.
+            run_learning_session_dspy(resource_paths = [], verbose=True) # Pass empty list for no resources
+
+            #    run_learning_session_dspy(resource_paths=created_files, verbose=True)
+
+        print("\n--- Main Script Execution Finished ---")
+
+Testing/Playground
+
+
+    all_raw_texts_dict["BartoSutton (1).txt"]
+
+    summary_router = DynamicResourceSummarizerModule()
+    conversation_history_with_rawresource = [
+        {'role': 'model', 'parts': ['What Hard thing You want to learn Today']},
+        {'role': 'user', 'parts': ['I want to understand the math part of attention is all you need. iam very week at the math part and have also attached the paper']},
+        {'role': 'model', 'parts': ['Are you beginner or intermediate in Math and ML']},
+        {'role': 'user', 'parts': ['Iam ok with Basic math and im intermediate in ML/Transformers ']},
+        {'role': 'model', 'parts': ['Ok generating syallabus']}
+    ]
+    conversation_history_str_for_test = format_history_for_dspy(conversation_history_with_rawresource)
+    resource_str = extract_text_from_txt_file(created_files[1])
+    resource_summaries = summary_router.forward(
+                    conversation_history_str= conversation_history_with_rawresource,
+                    resource_content=resource_str,
+                    resource_identifier=created_files[1],
+
+
+                )
+
+    # --- Test Script for SyllabusGeneratorRouter ---
+    syllabus_l = []
+    if 'dspy' not in globals() or dspy.settings.lm is None:
+        print("CRITICAL ERROR: DSPy LM not configured. Test cannot proceed.")
+    else:
+        print(f"INFO: DSPy LM configured with: {type(dspy.settings.lm).__name__}, Model: {dspy.settings.lm.model}")
+
+        # 1. Sample conversation history (same as your previous test)
+        sample_conversation_history_list = [
+            {'role': 'user', 'parts': ["Hi, I want to create a learning plan to understand the mathematical details of the 'Attention Is All You Need' paper."]},
+            {'role': 'model', 'parts': ["Okay! Your experience level with ML and math?"]},
+            {'role': 'user', 'parts': ["Intermediate ML, weak on specific math details."]},
+            {'role': 'model', 'parts': ["Understood. Focus on math of attention."]}
+        ]
+        conversation_history_str_for_test = format_history_for_dspy(sample_conversation_history_list) # Ensure this helper is defined
+
+        # 2. Instantiate the router
+        try:
+            syllabus_router = SyllabusGeneratorRouter()
+            print("SyllabusGeneratorRouter instantiated successfully.")
+        except Exception as e:
+            print(f"Error instantiating SyllabusGeneratorRouter: {e}")
+            syllabus_router = None
+
+        if syllabus_router:
+            # common_task_desc = "Generate an initial syllabus for understanding 'Attention Is All You Need' math, for a learner intermediate in ML but weak in specific math."
+
+            # --- Test Case 1: NO RESOURCES ---
+            print("\n--- Router Test Case 1: No Resources ---")
+            if 'limiter' in globals(): print(f"Limiter calls before: {limiter.total_calls_made_through_limiter}")
+            try:
+                syllabus_no_res = syllabus_router.forward(
+                    conversation_str=conversation_history_str_for_test,
+                    #task_description=common_task_desc + " (Rely only on conversation).",
+                    resource_type="NONE",
+                    resource_content=None, # Explicitly None
+                    # existing_syllabus_xml=None
+                )
+                syllabus_l.append(syllabus_no_res)
+                print("\n--- Generated Syllabus (No Resources via Router) ---")
+                print(syllabus_no_res)
+            except Exception as e_test: print(f"ERROR in test case: {e_test}")
+            if 'limiter' in globals(): print(f"Limiter calls after: {limiter.total_calls_made_through_limiter}")
+
+
+            # --- Test Case 2: WITH SUMMARIZED RESOURCE INFO ---
+            extracted_data_dict = {}
+            extracted_data_dict = {path: extract_text_from_txt_file(path) for path in created_files}
+            chars_length = 0
+            extracted_basedata_dict ={}
+            for full_path,chars in extracted_data_dict.items():
+              chars_length += len(chars)
+              base_filename = os.path.basename(full_path)
+              extracted_basedata_dict[base_filename] = chars
+            extracted_summary_dict = [summary_router.forward(resource_content = value,resource_identifier = key,conversation_history_str=conversation_history_str_for_test) for key,value in extracted_basedata_dict.items() ]
+            aggregated_summaries_dict = {}
+            for summary_dict in extracted_summary_dict:
+                if summary_dict and "resource_identifier" in summary_dict:
+                    aggregated_summaries_dict[summary_dict["resource_identifier"]] = summary_dict
+                else:
+                    print(f"Warning: Skipping invalid summary object: {summary_dict}")
+
+
+            if aggregated_summaries_dict:
+                resource_summaries_json_string_for_signature = json.dumps(aggregated_summaries_dict, indent=2)
+
+            else:
+                resource_summaries_json_string_for_signature = "{}"
+                print("Warning: No valid summaries to aggregate for SyllabusWithSummariesSignature.")
+
+
+
+
+
+            if 'limiter' in globals(): print(f"Limiter calls before: {limiter.total_calls_made_through_limiter}")
+            try:
+                syllabus_with_summaries = syllabus_router.forward(
+                    conversation_str=conversation_history_str_for_test,
+                    #task_description=common_task_desc + " (Use provided resource summaries).",
+                    resource_type="SUMMARIES",
+                    resource_content=aggregated_summaries_dict,
+
+                )
+                syllabus_l.append(syllabus_with_summaries)
+                print("\n--- Generated Syllabus (With Summaries via Router) ---")
+                print(syllabus_with_summaries)
+            except Exception as e_test: print(f"ERROR in test case: {e_test}")
+            if 'limiter' in globals(): print(f"Limiter calls after: {limiter.total_calls_made_through_limiter}")
+
+
+            # --- Test Case 3: WITH RAW TEXT (LIGHT) ---
+            print("\n\n--- Router Test Case 3: With Light Raw Text ---")
+            # Prepare some short raw text (e.g., from your created_files or dummy)
+            raw_text_input = ""
+            if 'created_files' in globals() and created_files and 'extract_text_from_txt_file' in globals():
+                # Let's use a short snippet from the first file if available
+                content_sample = extract_text_from_txt_file(created_files[1])
+                raw_text_input = {}
+                if content_sample:
+                    raw_text_input[os.path.basename(created_files[1])] = content_sample
+
+                else:
+                    raw_text_input = "Attention(Q, K, V) = softmax( (QK^T) / sqrt(d_k) ) * V. This is scaled dot-product attention." # Fallback dummy
+            else: # Fallback if created_files or extractor not available
+                raw_text_input = "Attention(Q, K, V) = softmax( (QK^T) / sqrt(d_k) ) * V. This is scaled dot-product attention. Q, K, V are matrices."
+            # print(f"Using raw text for test: {raw_text_input[:200]}...")
+
+            if 'limiter' in globals(): print(f"Limiter calls before: {limiter.total_calls_made_through_limiter}")
+            try:
+                syllabus_with_raw = syllabus_router.forward(
+                    conversation_str=conversation_history_str_for_test,
+                    #task_description=common_task_desc + " (Directly use these raw text snippets).",
+                    resource_type="RAW_TEXT",
+                    resource_content=raw_text_input,
+
+                )
+                syllabus_l.append(syllabus_with_raw)
+                print("\n--- Generated Syllabus (With Raw Text via Router) ---")
+                print(syllabus_with_raw)
+            except Exception as e_test: print(f"ERROR in test case: {e_test}")
+            if 'limiter' in globals(): print(f"Limiter calls after: {limiter.total_calls_made_through_limiter}")
+
+        else:
+            print("SyllabusGeneratorRouter not instantiated. Cannot run tests.")
+
+    print("\n--- Test for SyllabusGeneratorRouter Finished ---")
+
+    # print(syllabus_l[0])
+
+    extracted_data_dict = {}
+    extracted_data_dict = {path: extract_text_from_txt_file(path) for path in created_files}
+    chars_length = 0
+    extracted_basedata_dict ={}
+    for full_path,chars in extracted_data_dict.items():
+      chars_length += len(chars)
+      base_filename = os.path.basename(full_path)
+      extracted_basedata_dict[base_filename] = chars
+    extracted_summary_dict = [summary_router.forward(resource_content = value,resource_identifier = key,conversation_history_str=conversation_history_str_for_test) for key,value in extracted_basedata_dict.items() ]
+    aggregated_summaries_dict = {}
+    for summary_dict in extracted_summary_dict:
+        if summary_dict and "resource_identifier" in summary_dict:
+            aggregated_summaries_dict[summary_dict["resource_identifier"]] = summary_dict
+        else:
+            print(f"Warning: Skipping invalid summary object: {summary_dict}")
+
+
+    if aggregated_summaries_dict:
+        resource_summaries_json_string_for_signature = json.dumps(aggregated_summaries_dict, indent=2)
+
+    else:
+        resource_summaries_json_string_for_signature = "{}"
+        print("Warning: No valid summaries to aggregate for SyllabusWithSummariesSignature.")
+
+    conversation_history = [
+        {'role': 'model', 'parts': ['What Hard thing You want to learn Today']},
+        {'role': 'user', 'parts': ['I want to understand the math part of attention is all you need the Transformers paper. iam very week at the math part']},
+        {'role': 'model', 'parts': ['Are you beginner or intermediate in Math and ML']},
+        {'role': 'user', 'parts': ['Iam ok with Basic math and im intermediate in ML/Transformers ']},
+        {'role': 'model', 'parts': ['Ok generating syallabus']}
+    ]
+
+    conversation_history_witt_rawresource = [
+        {'role': 'model', 'parts': ['What Hard thing You want to learn Today']},
+        {'role': 'user', 'parts': ['I want to understand the math part of attention is all you need. iam very week at the math part and have also attached the paper']},
+        {'role': 'model', 'parts': ['Are you beginner or intermediate in Math and ML']},
+        {'role': 'user', 'parts': ['Iam ok with Basic math and im intermediate in ML/Transformers ']},
+        {'role': 'model', 'parts': ['Ok generating syallabus']}
+    ]
+    conversation_history_witt_heavyresource = [
+        {'role': 'model', 'parts': ['What Hard thing You want to learn Today']},
+        {'role': 'user', 'parts': ['I want to understand the math part of attention is all you need and the reinforcement learning math. iam very week at the math part and have also attached the resources']},
+        {'role': 'model', 'parts': ['Are you beginner or intermediate in Math and ML']},
+        {'role': 'user', 'parts': ['Iam ok with Basic math and im intermediate in ML/Transformers ']},
+        {'role': 'model', 'parts': ['Ok generating syallabus']}
+    ]

@@ -1,0 +1,120 @@
+/* src/FileChip.module.css */
+
+.fileChip {
+  display: inline-flex; /* Use inline-flex to allow wrapping */
+  align-items: center;
+  background-color: #e9ecef; /* Light grey background for the chip */
+  color: #343a40;         /* Darker text for readability */
+  padding: 6px 12px;
+  border-radius: 16px;    /* Pill shape */
+  font-size: 0.875em;     /* 14px */
+  border: 1px solid #dee2e6;
+  max-width: 250px; /* Prevent chips from being excessively wide */
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.fileChip:hover {
+  background-color: #e2e6ea;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.07);
+}
+
+.fileIcon {
+  margin-right: 8px;
+  display: flex; /* For icon alignment */
+  align-items: center;
+  opacity: 0.7;
+}
+.fileIcon svg { /* Style the SVG icon inside .fileIcon */
+    width: 1em;
+    height: 1em;
+}
+
+
+.fileInfo {
+  display: flex;
+  flex-direction: column; /* Stack name and type/status vertically */
+  overflow: hidden; /* For ellipsis on fileName */
+  flex-grow: 1; /* Allow info to take available space */
+}
+
+.fileName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  font-size: 0.95em;
+  line-height: 1.2;
+}
+
+.fileStatus,
+.fileType { /* .fileType is used in your FileChip.jsx for general type display */
+  font-size: 0.8em;
+  color: #6c757d; /* Muted color for status/type */
+  line-height: 1.2;
+  margin-top: 1px;
+}
+
+/* Different statuses */
+.fileChip.uploading .fileStatus::before,
+.fileChip.processing .fileStatus::before {
+  content: '⏳ '; /* Spinner or uploading text */
+}
+.fileChip.completed_temp .fileStatus::before {
+  content: '✅ '; /* Checkmark for completed */
+  color: #28a745; /* Green */
+}
+.fileChip.error .fileStatus {
+  color: #dc3545; /* Red for error status text */
+  font-weight: 500;
+}
+.fileChip.error .fileStatus::before {
+  content: '⚠️ '; /* Warning icon for error */
+}
+.fileChip.error { /* Style the whole chip on error */
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+.fileChip.error .fileStatus,
+.fileChip.error .fileName,
+.fileChip.error .fileType {
+    color: #721c24; /* Dark red text on light red background */
+}
+.fileChip.error .fileIcon {
+    opacity: 1;
+    color: #721c24;
+}
+.fileChip.error .removeButton {
+    color: #721c24;
+}
+.fileChip.error .removeButton:hover {
+    color: #491217;
+}
+
+
+/* Progress Indicator (optional, if you add progress to FileChip) */
+.progressIndicator {
+    font-size: 0.8em;
+    color: #007bff;
+    margin-left: 4px;
+}
+
+.removeButton {
+  background: none;
+  border: none;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 4px; /* Make clickable area slightly larger */
+  margin-left: 8px;
+  line-height: 1;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0; /* Prevent button from shrinking */
+}
+.removeButton:hover {
+  color: #dc3545; /* Red on hover for delete */
+  background-color: rgba(220, 53, 69, 0.1);
+}

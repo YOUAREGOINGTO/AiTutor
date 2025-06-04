@@ -1,168 +1,98 @@
 # api/ai_services.py
-import google.generativeai as genai
-from django.conf import settings
+import dspy
+import litellm # Keep for the custom LM
 import logging
-from typing import List, Dict, Optional, Any
+from django.conf import settings
 import re
-# --- Add necessary imports for rate limiting ---
-import asyncio
-from collections import deque
-from datetime import datetime, timedelta, timezone
-# --- End imports ---
+from typing import Optional, List, Dict, Any, Union,Tuple,Callable
+# New imports for DSPy setup
+from .async_rate_limiter import AsyncRateLimiter, RATE_LIMIT_CALLS_DSPY, RATE_LIMIT_PERIOD_DSPY # Use constants from there
+from .dspy_llm import AsyncCustomGeminiDspyLM
 
+logger = logging.getLogger(__name__)
 
-# --- Configuration and Client Setup ---
-logger = logging.getLogger(__name__) # Ensure logger uses 'api' name
-gemini_configured = False
-if settings.GEMINI_API_KEY:
-    try:
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        gemini_configured = True
-        logger.info("Google Generative AI configured successfully.")
-    except Exception as e:
-        logger.error(f"Error configuring Google Generative AI: {e}", exc_info=True)
-else:
-    logger.warning("GEMINI_API_KEY not found in settings. AI services will not function.")
-# --- End Configuration ---
+# --- Global DSPy LM instance ---
+# This will be configured once when the module loads.
+__configured_dspy_lm = None
+gemini_configured_for_dspy = False
 
+# --- Initialize Rate Limiter ---
+# You can adjust parameters here or load from settings if needed
+# Using the constants defined in async_rate_limiter.py for consistency
+dspy_global_rate_limiter = AsyncRateLimiter(
+    max_calls=RATE_LIMIT_CALLS_DSPY, 
+    period_seconds=int(RATE_LIMIT_PERIOD_DSPY.total_seconds())
+)
+logger.info("DSPy global rate limiter initialized in ai_services.")
 
-# --- Rate Limiting Setup ---
-RATE_LIMIT_CALLS = 8                # Max calls allowed
-RATE_LIMIT_PERIOD = timedelta(minutes=1) # Time window (1 minute)
-# Use a deque for efficient timestamp storage and removal
-llm_call_timestamps: deque[datetime] = deque() # Type hint for clarity
-# Async lock to prevent race conditions when checking/updating timestamps
-rate_limit_lock = asyncio.Lock()
+# --- Configure DSPy ---
+def configure_dspy_lm():
+    global __configured_dspy_lm, gemini_configured_for_dspy
+    
+    if gemini_configured_for_dspy:
+        logger.info("DSPy LM already configured.")
+        return
 
-# --- Rate Limit Error Message Constant ---
-RATE_LIMIT_EXCEEDED_MESSAGE = "[RATE_LIMIT_EXCEEDED] Too many requests, please wait a minute."
-# --- End Rate Limiting Setup ---
-
-
-# --- Refactored Asynchronous LLM Call Function (with Rate Limiting) ---
-async def async_llm_call(
-    prompt: str,
-    chat_history: Optional[List[Dict[str, Any]]] = None,
-    system_prompt: Optional[str] = None,
-    model_name: Optional[str] = None,
-    temperature: float = 0.4, # Using the default from your previous version
-    safety_settings: Optional[List[Dict]] = None
-) -> str:
-    """
-    Asynchronously interacts with the Gemini API, incorporating rate limiting.
-    Limits calls to RATE_LIMIT_CALLS per RATE_LIMIT_PERIOD.
-    Returns the LLM response or a specific rate limit error message string.
-    """
-    if not gemini_configured:
-        logger.error("Attempted to call LLM but Gemini API key is not configured.")
-        return "[ERROR: Gemini API Key not configured]"
-
-    # --- Rate Limiting Check ---
-    async with rate_limit_lock: # Acquire lock to safely access shared state
-        now = datetime.now(timezone.utc) # Use UTC for consistency
-
-        # Remove timestamps older than the rate limit period from the left side
-        while llm_call_timestamps and llm_call_timestamps[0] <= now - RATE_LIMIT_PERIOD:
-            llm_call_timestamps.popleft()
-
-        # Check if the number of recent calls meets or exceeds the limit
-        if len(llm_call_timestamps) >= RATE_LIMIT_CALLS:
-            logger.warning(
-                f"Rate limit exceeded. Current calls in period ({RATE_LIMIT_PERIOD}): "
-                f"{len(llm_call_timestamps)} >= {RATE_LIMIT_CALLS}"
-            )
-            # Return the specific error message string
-            # Lock is automatically released when exiting 'async with' block
-            return RATE_LIMIT_EXCEEDED_MESSAGE
-
-        # If limit not exceeded, record the timestamp of this allowed call
-        llm_call_timestamps.append(now)
-        logger.debug(
-            f"LLM call allowed. Current calls in period: {len(llm_call_timestamps)}/{RATE_LIMIT_CALLS}"
-        )
-    # --- End Rate Limiting Check (Lock Released) ---
-
-
-    # --- Proceed with Original LLM Call Logic ---
-    model_to_use = model_name if model_name else settings.DEFAULT_GEMINI_MODEL
-    effective_safety_settings = safety_settings if safety_settings else settings.DEFAULT_SAFETY_SETTINGS
-    effective_system_prompt = system_prompt # Keep None if not provided
-
-    logger.debug(f"Making async LLM call. Model: {model_to_use}, Temp: {temperature}")
+    if not settings.GEMINI_API_KEY:
+        logger.error("CRITICAL: GEMINI_API_KEY not found in settings. DSPy LM cannot be configured for Gemini.")
+        # Optionally, configure a fallback dummy LM for testing without API key
+        # dspy.settings.configure(lm=dspy.utils.DummyLM("DSPy is in dummy mode. GEMINI_API_KEY missing."))
+        # logger.warning("DSPy configured with DummyLM as GEMINI_API_KEY is missing.")
+        # gemini_configured_for_dspy = False # Explicitly false
+        return
 
     try:
-        model_instance = genai.GenerativeModel(
-            model_name=model_to_use,
-            system_instruction=effective_system_prompt,
-            safety_settings=effective_safety_settings
+        # Construct the LiteLLM model string (e.g., "gemini/gemini-1.5-flash-latest")
+        # Ensure DEFAULT_GEMINI_MODEL in settings is just the model name like "gemini-1.5-flash-latest"
+        # or "gemini-pro", not the full "gemini/..." string.
+        model_name_for_litellm = settings.DEFAULT_GEMINI_MODEL
+        if not model_name_for_litellm.startswith("gemini/"):
+            litellm_model_string = f"gemini/{model_name_for_litellm}"
+        else: # If it already has the prefix (less ideal for settings.DEFAULT_GEMINI_MODEL)
+            litellm_model_string = model_name_for_litellm
+            logger.warning(f"settings.DEFAULT_GEMINI_MODEL ('{model_name_for_litellm}') includes 'gemini/' prefix. Consider using just the model name.")
+
+        logger.info(f"Attempting to configure DSPy with AsyncCustomGeminiDspyLM for model: {litellm_model_string}")
+
+        custom_lm = AsyncCustomGeminiDspyLM(
+            model=litellm_model_string,
+            api_key=settings.GEMINI_API_KEY, # Passed explicitly, though LiteLLM can use env vars
+            rate_limiter_instance=dspy_global_rate_limiter,
+            safety_settings=settings.DEFAULT_SAFETY_SETTINGS,
+            # Default kwargs for all calls made through this LM instance
+            # Temperature, max_tokens, etc., can be set here or overridden in dspy.Predict/Module calls
+            temperature=settings.GEMINI_DEFAULT_TEMPERATURE if hasattr(settings, 'GEMINI_DEFAULT_TEMPERATURE') else 0.7,
+            # max_tokens=settings.GEMINI_DEFAULT_MAX_TOKENS if hasattr(settings, 'GEMINI_DEFAULT_MAX_TOKENS') else 2048, # Example
         )
-        generation_config = genai.types.GenerationConfig(
-            temperature=temperature
-        )
-
-        # Prepare input history and prompt
-        full_chat_content = []
-        if chat_history:
-            if isinstance(chat_history, list) and all(isinstance(item, dict) and 'role' in item and 'parts' in item for item in chat_history):
-                full_chat_content.extend(chat_history)
-            else:
-                 logger.warning("Invalid chat_history format provided to async_llm_call.")
-        # Ensure prompt is correctly formatted in parts
-        if isinstance(prompt, str):
-            full_chat_content.append({"role": "user", "parts": [{'text': prompt}]})
-        else:
-             logger.error(f"Invalid prompt type received: {type(prompt)}")
-             return "[ERROR: Invalid prompt type]"
-
-        generation_input = full_chat_content
-
-        # --- THE ASYNC CALL to Gemini ---
-        response = await model_instance.generate_content_async(
-            generation_input,
-            generation_config=generation_config
-        )
-        # --------------------------------
-
-        # --- Response Handling (Keep robust checks) ---
-        response_text = ""
-        block_reason = None
-        finish_reason = None
-
-        if hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
-            block_reason = response.prompt_feedback.block_reason.name
-            logger.warning(f"LLM call blocked by API (prompt). Reason: {block_reason}")
-            return f"[BLOCKED DUE TO PROMPT: {block_reason}]"
-
-        if hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'finish_reason'):
-                finish_reason = candidate.finish_reason.name
-            if finish_reason not in ['STOP', 'UNSPECIFIED', None]:
-                logger.warning(f"LLM generation potentially stopped prematurely. Reason: {finish_reason}")
-
-            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts') and candidate.content.parts:
-                response_text = "".join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
-
-        if not response_text and hasattr(response, 'text'):
-            response_text = response.text # Fallback
-
-        if response_text:
-            logger.debug("LLM call successful, returning text.")
-            return response_text
-        elif finish_reason == 'STOP':
-             logger.warning("LLM call finished with STOP reason but no text content extracted.")
-             return "[EMPTY RESPONSE - STOP]"
-        else:
-            logger.warning(f"LLM call returned no text content. Finish Reason: {finish_reason}, Block Reason: {block_reason}")
-            return f"[EMPTY RESPONSE - Finish: {finish_reason}, Block: {block_reason}]"
-        # --- End Response Handling ---
+        
+        dspy.settings.configure(lm=custom_lm)
+        __configured_dspy_lm = custom_lm # Store the configured instance
+        gemini_configured_for_dspy = True
+        logger.info(f"DSPy configured globally with AsyncCustomGeminiDspyLM using model: {litellm_model_string}")
+        logger.info(f"DSPy LM type: {type(dspy.settings.lm)}")
 
     except Exception as e:
-        # Catch potential API errors or other issues
-        logger.error(f"Error during async Gemini API call: {e}", exc_info=True)
-        # You could check for specific API error types here if the library raises them
-        # e.g., if isinstance(e, google.api_core.exceptions.ResourceExhausted): return RATE_LIMIT_EXCEEDED_MESSAGE
-        return f"[ERROR: {type(e).__name__} - {e}]"
+        logger.error(f"Error configuring DSPy with AsyncCustomGeminiDspyLM: {e}", exc_info=True)
+        # Optionally, configure a fallback dummy LM here as well
+        # dspy.settings.configure(lm=dspy.utils.DummyLM(f"DSPy in dummy mode due to config error: {e}"))
+        # logger.warning("DSPy configured with DummyLM due to an error during AsyncCustomGeminiDspyLM setup.")
+        # gemini_configured_for_dspy = False # Explicitly false
+
+# --- Call configuration when this module is loaded ---
+# This ensures DSPy is set up as soon as ai_services is imported.
+configure_dspy_lm()
+
+
+# --- Utility function to get the configured LM ---
+def get_dspy_lm() -> Optional[AsyncCustomGeminiDspyLM]:
+    """
+    Returns the globally configured DSPy LM instance.
+    Returns None if not configured or if configuration failed.
+    """
+    if not gemini_configured_for_dspy:
+        logger.warning("get_dspy_lm called, but DSPy LM is not successfully configured with Gemini.")
+    return __configured_dspy_lm
+
 
 # --- XML Extraction Function (Keep as is) ---
 def extract_xml(text: str, tag: str) -> str:
@@ -172,31 +102,11 @@ def extract_xml(text: str, tag: str) -> str:
     """
     if not text or not tag:
         return ""
+    # Ensure text is a string before using regex
+    if not isinstance(text, str):
+        logger.warning(f"extract_xml received non-string input (type: {type(text)}). Converting to string.")
+        text = str(text)
+
     match = re.search(f'<{tag}>(.*?)</{tag}>', text, re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
-# --- Test Call Function (Keep as is for testing rate limiter) ---
-async def test_call():
-    print(f"Testing rate limiter ({RATE_LIMIT_CALLS} calls / {RATE_LIMIT_PERIOD})...")
-    tasks = []
-    for i in range(RATE_LIMIT_CALLS + 5): # Try to exceed the limit
-        # Create tasks to run concurrently
-        task = asyncio.create_task(
-            async_llm_call(f"Short explanation request #{i+1}.")
-        )
-        tasks.append(task)
-        # Optional small delay between starting tasks if needed for testing setup
-        # await asyncio.sleep(0.05)
-
-    # Wait for all tasks to complete and print results
-    results = await asyncio.gather(*tasks)
-    for i, result in enumerate(results):
-        print(f"Result {i+1}: {result[:100]}{'...' if len(result)>100 else ''}")
-    print("Test calls finished.")
-
-
-# To test in shell:
-# python manage.py shell
-# >>> from api.ai_services import test_call
-# >>> import asyncio
-# >>> asyncio.run(test_call())
