@@ -12,6 +12,7 @@ db.sqlite3
 /ENV/
 /env.bak/
 /venv.bak/
+venv
 # Add any specific old venv names you might accidentally copy
 # /django_py311/
 
