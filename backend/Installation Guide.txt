@@ -1,0 +1,124 @@
+---------------------------------------------------------------------------------
+  AI Tutor Project - Full Manual Setup Commands (Windows Command Prompt)
+---------------------------------------------------------------------------------
+
+**Prerequisites:**
+  - Git:           (https://git-scm.com/download/win)
+  - Python 3.10+:  (https://www.python.org/downloads/windows/)
+                   (Ensure "Add Python to PATH" is checked during installation)
+  - Node.js (LTS): (https://nodejs.org/en/download/)
+                   (npm is included. Ensure "Add to PATH" is checked)
+
+---------------------------------------------------------------------------------
+  PART 1: CLONE THE PROJECT
+---------------------------------------------------------------------------------
+
+REM 1. Open Command Prompt.
+
+REM 2. Navigate to where you want to store the project (e.g., your user's Documents folder).
+cd %USERPROFILE%\Documents
+REM Or: mkdir MyProjects && cd MyProjects
+
+REM 3. Clone the repository (replace <repository_url> with the actual GitHub URL).
+git clone <repository_url> ai-tutor-project
+REM (This clones it into a folder named 'ai-tutor-project')
+
+REM 4. Navigate into the cloned project's root directory.
+cd ai-tutor-project
+
+---------------------------------------------------------------------------------
+  PART 2: BACKEND SETUP (Django with SQLite)
+---------------------------------------------------------------------------------
+
+REM 5. Navigate into the backend directory.
+cd backend
+
+REM 6. Create a Python virtual environment.
+python -m venv venv
+
+REM 7. Activate the virtual environment.
+.\venv\Scripts\activate
+
+REM 8. Install Python dependencies.
+pip install -r requirements.txt
+
+REM 9. Create the .env file for backend environment variables.
+REM    Copy the example file.
+copy .env.example .env
+
+REM 10. **MANUAL STEP:** Open 'backend\.env' in a text editor (like Notepad or VS Code).
+REM     Fill in your actual values for:
+REM       - DJANGO_SECRET_KEY="your_very_strong_random_secret_key_here"
+REM       - GEMINI_API_KEY="your_google_gemini_api_key_here"
+REM     Save and close the file. You MUST do this before proceeding.
+notepad .env
+REM (Or use your preferred editor)
+
+REM 11. Create the SQLite database and apply migrations.
+python manage.py makemigrations api
+python manage.py migrate
+
+REM 12. (Optional) Create a Django superuser for accessing the admin panel.
+python manage.py createsuperuser
+REM (Follow the prompts to set username, email, and password)
+
+REM 13. (Optional but Recommended) Create media subdirectories if not automatically handled by settings.py
+IF NOT EXIST "media" mkdir "media"
+IF NOT EXIST "media\uploaded_resources" mkdir "media\uploaded_resources"
+IF NOT EXIST "media\temp_chat_uploads" mkdir "media\temp_chat_uploads"
+
+REM Backend setup is mostly complete. Keep this terminal open (with venv activated)
+REM to run the backend server later.
+
+---------------------------------------------------------------------------------
+  PART 3: FRONTEND SETUP (React)
+---------------------------------------------------------------------------------
+
+REM 14. Open a NEW, SEPARATE Command Prompt.
+
+REM 15. Navigate into the project's root directory (if not already there from Part 1).
+cd path\to\your\ai-tutor-project
+REM Example: cd %USERPROFILE%\Documents\ai-tutor-project
+
+REM 16. Navigate into the frontend directory.
+cd frontend
+
+REM 17. Install Node.js dependencies.
+npm install
+
+REM Frontend setup is complete. Keep this terminal open to run the frontend server.
+
+---------------------------------------------------------------------------------
+  PART 4: RUNNING THE APPLICATION
+---------------------------------------------------------------------------------
+
+REM 18. In the FIRST Command Prompt (for the Backend):
+REM     - Ensure you are in the 'backend' directory.
+REM     - Ensure the virtual environment is still active (you should see '(venv)' at the start of the prompt).
+REM       If not, reactivate: .\venv\Scripts\activate
+REM     - Start the Django development server using Uvicorn:
+uvicorn tutor_project.asgi:application --reload --port 8001
+
+REM     You should see output indicating the server is running on http://127.0.0.1:8001/
+
+REM 19. In the SECOND Command Prompt (for the Frontend):
+REM     - Ensure you are in the 'frontend' directory.
+REM     - Start the React development server:
+npm run dev
+
+REM     You should see output indicating the server is running, usually on http://localhost:3001/
+REM     The terminal will often say: "Local: http://localhost:3001/"
+
+REM 20. Open your web browser and navigate to the frontend URL (e.g., http://localhost:3001).
+
+---------------------------------------------------------------------------------
+  STOPPING THE APPLICATION
+---------------------------------------------------------------------------------
+
+REM - In each Command Prompt window (backend and frontend), press CTRL+C.
+REM - Confirm if asked (usually by pressing 'Y' then Enter).
+REM - To deactivate the Python virtual environment in the backend terminal (optional, happens on close):
+REM   (Run this while in the 'backend' directory with venv active)
+REM   deactivate
+
+---------------------------------------------------------------------------------
