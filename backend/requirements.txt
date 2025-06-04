@@ -3,6 +3,7 @@
 # Django Framework
 Django==5.2
 
+
 asgiref==3.8.1  # ASGI framework, dependency for Django and Uvicorn/Daphne
 
 # AI & LLM Libraries
@@ -21,5 +22,4 @@ uvicorn[standard]~=0.29.0 # ASGI server (includes websockets and http tools)
 requests==2.32.3          # For synchronous HTTP requests 
 httpx==0.28.1             # For asynchronous HTTP requests 
 # Install the Libraries Required for Your own Databases
-
 
