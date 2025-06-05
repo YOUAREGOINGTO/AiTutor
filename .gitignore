@@ -4,7 +4,7 @@ __pycache__/
 *.log
 db.sqlite3
 *.sqlite3
-
+backend/venv/
 # Virtual Environments (add others if you use different names)
 /venv/
 /.venv/

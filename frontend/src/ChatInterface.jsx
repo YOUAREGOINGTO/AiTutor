@@ -48,7 +48,7 @@ const STAGE_START = "START";
 const STAGE_NEGOTIATING = "NEGOTIATING";
 const STAGE_EXPLAINING = "EXPLAINING";
 const STAGE_ERROR = "ERROR";
-const MAX_FILES_ALLOWED = 3;
+const MAX_FILES_ALLOWED = 10;
 
 
 // --- Helper Components ---
