@@ -103,3 +103,8 @@ $RECYCLE.BIN/
 # --- Django Specific Static Files ---
 # Ignore collected static files if you use STATIC_ROOT
 # /backend/staticfiles_collected/ # Adjust path if your STATIC_ROOT is different
+
+# Adding Bat Files.
+*.bat
+backend/*.bat
+backend/run_backend.bat
